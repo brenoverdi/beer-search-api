@@ -46,4 +46,17 @@ router.post(
   },
 );
 
+// POST /api/beers/search-from-url
+router.post(
+  '/beers/search-from-url',
+  searchLimiter,
+  verifyMiddleware.optionalAuth,
+  async (req: Request, res: Response) => {
+    const result = await container
+      .resolve(beersUseCases.SearchBeersFromUrlUseCase)
+      .execute(req.body.url, req.userId);
+    res.status(200).json(result);
+  },
+);
+
 export default router;

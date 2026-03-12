@@ -21,7 +21,7 @@ export interface NormalizedBeer {
   description: string | null;
 }
 
-export type SearchSource = 'single' | 'list' | 'image';
+export type SearchSource = 'single' | 'list' | 'image' | 'url';
 
 export interface SearchResponse {
   source: SearchSource;
