@@ -24,9 +24,23 @@ api.use(compression());
 api.use(morgan('dev'));
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
+// FRONTEND_URL can be comma-separated for multiple origins:
+//   https://beer-search-application.vercel.app,http://localhost:5173
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 api.use(
   cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: (origin, callback) => {
+      // allow server-to-server requests (no origin) and whitelisted origins
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS blocked: ${origin}`));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
