@@ -18,6 +18,9 @@ import listsRouter from './modules/lists/lists.route';
 
 const api = express();
 
+// Required for express-rate-limit to correctly read X-Forwarded-For behind Vercel's proxy
+api.set('trust proxy', 1);
+
 // ── Security & utility ────────────────────────────────────────────────────────
 api.use(helmet());
 api.use(compression());

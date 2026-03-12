@@ -59,11 +59,12 @@ export class GetPopularBeersUseCase {
     // 3. Gemini — only called when DB doesn't have all beers yet
     if (!process.env.GEMINI_API_KEY) throw new AppError(503, 'GEMINI_API_KEY is not configured');
 
-    // Google Search grounding is incompatible with responseMimeType:'application/json'
-    // so we extract JSON from the text response via regex instead.
+    // Google Search grounding — googleSearch is required for Gemini 2.0 Flash.
+    // @google/generative-ai v0.24.x types only expose googleSearchRetrieval, so cast to any.
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.0-flash',
-      tools: [{ googleSearchRetrieval: {} }],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tools: [{ googleSearch: {} } as any],
     });
 
     const names = POPULAR_NAMES;
