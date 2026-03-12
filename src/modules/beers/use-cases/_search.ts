@@ -43,19 +43,19 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => (
   description: g.description ?? null,
 });
 
-const _callGeminiSingle = async (name: string): Promise<NormalizedBeer> => {
+const callGeminiSingle = async (name: string): Promise<NormalizedBeer> => {
   const prompt =
-    `Search for "${name} site:untappd.com" and find the beer's Untappd page.\n\n` +
-    `Extract the EXACT data from the Untappd listing (use Google's indexed data):\n` +
-    `- beer_name: the beer's official name\n` +
-    `- brewery: the brewery name\n` +
-    `- style: the style category (e.g. "Spiced / Herbed Beer")\n` +
-    `- abv: the ABV percentage as a float (e.g. 5.0). If not found, use null.\n` +
-    `- rating_score: the Untappd rating (e.g. 3.86)\n` +
-    `- rating_count: the number of ratings as an integer (e.g. 1962)\n` +
-    `- description: brief description of the beer; 1-2 sentences\n\n` +
-    `Schema: {"beer_name":"","brewery":"","style":"","abv":0.0,"rating_score":0.0,"rating_count":0,"description":""}\n\n` +
-    `Output ONLY the raw JSON object. No markdown. No extra text.`;
+    `Search Google for: ${name} beer untappd rating ABV\n\n` +
+    `Find the Untappd page for this beer and extract:\n` +
+    `- beer_name: exact beer name\n` +
+    `- brewery: brewery name\n` +
+    `- style: beer style (e.g. "IPA", "Stout", "Sour Ale")\n` +
+    `- abv: ABV as number (e.g. 5.0)\n` +
+    `- rating_score: Untappd rating (e.g. 3.86)\n` +
+    `- rating_count: number of ratings\n` +
+    `- description: 1-2 sentence description\n\n` +
+    `Return JSON: {"beer_name":"","brewery":"","style":"","abv":null,"rating_score":null,"rating_count":null,"description":""}\n` +
+    `Use null for any field not found. Output ONLY JSON, no markdown.`;
 
   const response = await withRetry(() =>
     ai.models.generateContent({
@@ -80,47 +80,17 @@ const _callGeminiSingle = async (name: string): Promise<NormalizedBeer> => {
 const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
   if (!process.env.GEMINI_API_KEY) throw new AppError(503, 'GEMINI_API_KEY is not configured');
 
-  // Build a single prompt for all beers — googleSearch can handle multiple queries
-  const searchQueries = names
-    .map((name, i) => `${i + 1}. "${name}" site:untappd.com`)
-    .join('\n');
+  // Process in parallel chunks of 4 for better speed while avoiding rate limits
+  const CONCURRENCY = 4;
+  const results: NormalizedBeer[] = [];
 
-  const prompt =
-    `Search for these beers on Untappd and extract their EXACT data from Google's indexed results:\n\n` +
-    `${searchQueries}\n\n` +
-    `For EACH beer, extract:\n` +
-    `- beer_name: the beer's official name\n` +
-    `- brewery: the brewery name\n` +
-    `- style: the style category (e.g. "Spiced / Herbed Beer")\n` +
-    `- abv: ABV as a float (e.g. 5.0). If not found, use null.\n` +
-    `- rating_score: the Untappd rating (e.g. 3.86)\n` +
-    `- rating_count: number of ratings as integer (e.g. 1962)\n` +
-    `- description: brief description; 1-2 sentences\n\n` +
-    `Return a JSON array with ${names.length} objects in the SAME ORDER as the input list.\n` +
-    `Schema: [{"beer_name":"","brewery":"","style":"","abv":0.0,"rating_score":0.0,"rating_count":0,"description":""}]\n\n` +
-    `Output ONLY the raw JSON array. No markdown. No extra text.`;
-
-  const response = await withRetry(() =>
-    ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: { tools: [{ googleSearch: {} }] },
-    })
-  );
-  const text = response.text ?? '';
-
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    // Fallback: return normalized defaults
-    return names.map((name) => normalize({}, name));
+  for (let i = 0; i < names.length; i += CONCURRENCY) {
+    const chunk = names.slice(i, i + CONCURRENCY);
+    const chunkResults = await Promise.all(chunk.map((name) => callGeminiSingle(name)));
+    results.push(...chunkResults);
   }
 
-  try {
-    const parsed = JSON.parse(jsonMatch[0]) as GeminiResult[];
-    return names.map((name, i) => normalize(parsed[i] ?? {}, name));
-  } catch {
-    return names.map((name) => normalize({}, name));
-  }
+  return results;
 };
 
 const extractNamesFromImage = async (base64Data: string, mimeType: string): Promise<string[]> => {
