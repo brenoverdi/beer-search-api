@@ -7,8 +7,10 @@ export interface NormalizedBeer {
   beer_name: string;
   brewery: string;
   style: string;
+  abv: number | null;
   rating_score: number | null;
   rating_count: number | null;
+  description: string | null;
 }
 
 // ── DB helpers ───────────────────────────────────────────────────────────────
@@ -29,14 +31,18 @@ export const upsertBeer = async (beer: NormalizedBeer) => {
       beerName: beer.beer_name,
       brewery: beer.brewery,
       style: beer.style,
+      abv: beer.abv,
       ratingScore: beer.rating_score,
       ratingCount: beer.rating_count,
+      description: beer.description,
     },
     update: {
       brewery: beer.brewery,
       style: beer.style,
+      abv: beer.abv,
       ratingScore: beer.rating_score,
       ratingCount: beer.rating_count,
+      description: beer.description,
     },
   });
 };

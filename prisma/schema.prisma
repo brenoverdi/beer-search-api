@@ -41,8 +41,10 @@ model Beer {
   beerName    String   @map("beer_name") @db.VarChar(200)
   brewery     String   @db.VarChar(200)
   style       String   @db.VarChar(100)
+  abv         Float?   @map("abv")
   ratingScore Float?   @map("rating_score")
   ratingCount Int?     @map("rating_count")
+  description String?  @map("description") @db.Text
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 

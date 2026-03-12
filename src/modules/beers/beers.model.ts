@@ -4,8 +4,10 @@ export interface GeminiResult {
   beer_name: string;
   brewery: string;
   style: string;
+  abv: number | null;
   rating_score: number | null;
   rating_count: number | null;
+  description: string | null;
 }
 
 export interface NormalizedBeer {
@@ -13,8 +15,10 @@ export interface NormalizedBeer {
   beer_name: string;
   brewery: string;
   style: string;
+  abv: number | null;
   rating_score: number | null;
   rating_count: number | null;
+  description: string | null;
 }
 
 export type SearchSource = 'single' | 'list' | 'image';
