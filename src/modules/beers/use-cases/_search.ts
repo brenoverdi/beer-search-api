@@ -43,56 +43,28 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => (
   description: g.description ?? null,
 });
 
-// Step 1: Generate an optimized Untappd search query for the beer.
-const callGeminiSearcher = async (name: string): Promise<string> => {
+const callGeminiSingle = async (name: string): Promise<NormalizedBeer> => {
+  const untappdUrl = `https://untappd.com/search?q=${encodeURIComponent(name)}`;
+
   const prompt =
-    `You are a search query optimizer for a beer application. Your goal is to find the exact Untappd URL for a specific beer.\n\n` +
-    `Input: "${name}"\n\n` +
-    `Task:\n` +
-    `1. Construct a Google search query that targets the Untappd beer page.\n` +
-    `2. If the brewery name is known, include it.\n\n` +
-    `Return ONLY a JSON object in this format:\n` +
-    `{"search_query": "specific beer name brewery site:untappd.com/b/"}`;
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
-    contents: prompt,
-  });
-  const text = response.text ?? '';
-
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return `${name} site:untappd.com/b/`;
-
-  try {
-    const parsed = JSON.parse(match[0]) as { search_query?: string };
-    return parsed.search_query ?? `${name} site:untappd.com/b/`;
-  } catch {
-    return `${name} site:untappd.com/b/`;
-  }
-};
-
-// Step 2: Use the search query with grounding + urlContext to retrieve and strictly extract beer data.
-const callGeminiExtractor = async (name: string, searchQuery: string): Promise<NormalizedBeer> => {
-  const prompt =
-    `Search for "${searchQuery}" to find the Untappd page for the beer "${name}", then fetch and read that page.\n\n` +
-    `You are a precision data extraction tool.\n\n` +
-    `STRICT EXTRACTION RULES:\n` +
-    `1. BREWERY: Extract the legal brewery name.\n` +
-    `2. ABV: Look for the "%" symbol. Convert it to a float. If "N/A", use 0.0.\n` +
-    `3. RATING_SCORE: This is the "Weighted Average." It must be a float between 0 and 5.\n` +
-    `4. RATING_COUNT: This is the total number of "Ratings". Remove commas and return as an integer.\n` +
-    `5. DESCRIPTION: Provide a 1-2 sentence English description based ONLY on the retrieved text.\n\n` +
-    `If the data is missing from the retrieved page, do not guess based on your training data. Use 0.0 or 0.\n\n` +
+    `Read this Untappd search page: ${untappdUrl}\n\n` +
+    `Find the first beer result and extract its EXACT metadata from the page.\n\n` +
+    `EXTRACTION RULES (copy values exactly as shown on the page):\n` +
+    `- beer_name: the beer's official name\n` +
+    `- brewery: the brewery name shown\n` +
+    `- style: the style category (e.g. "Spiced / Herbed Beer")\n` +
+    `- abv: the ABV percentage as a float (e.g. 5.0). If not shown, use null.\n` +
+    `- rating_score: the weighted average rating (e.g. 3.86)\n` +
+    `- rating_count: the "Ratings" count as an integer (e.g. 1962). NOT "Total", the "Ratings" number.\n` +
+    `- description: translate the brewery description to English; 1-2 sentences\n\n` +
     `Schema: {"beer_name":"","brewery":"","style":"","abv":0.0,"rating_score":0.0,"rating_count":0,"description":""}\n\n` +
-    `Output ONLY the raw JSON. No markdown code blocks. No preamble.`;
+    `Output ONLY the raw JSON object. No markdown. No extra text.`;
 
   const response = await withRetry(() =>
     ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }, { urlContext: {} }],
-      },
+      config: { tools: [{ urlContext: {} }] },
     })
   );
   const text = response.text ?? '';
@@ -108,17 +80,10 @@ const callGeminiExtractor = async (name: string, searchQuery: string): Promise<N
   }
 };
 
-// Two-step pipeline: Searcher → Extractor.
-const callGeminiSingle = async (name: string): Promise<NormalizedBeer> => {
-  const searchQuery = await callGeminiSearcher(name);
-  return callGeminiExtractor(name, searchQuery);
-};
-
 const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
   if (!process.env.GEMINI_API_KEY) throw new AppError(503, 'GEMINI_API_KEY is not configured');
 
-  // Sequential: one grounded call per beer avoids both rate-limit bursts and
-  // cross-beer numeric contamination that happens with batched prompts.
+  // Sequential to avoid rate limits — urlContext fetches each Untappd page
   const results: NormalizedBeer[] = [];
   for (const name of names) {
     results.push(await callGeminiSingle(name));
