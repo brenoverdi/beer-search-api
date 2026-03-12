@@ -102,7 +102,7 @@ const extractNamesFromImage = async (base64Data: string, mimeType: string): Prom
       role: 'user',
       parts: [
         { inlineData: { data: base64Data, mimeType } },
-        { text: 'List every beer name visible in this image. Return ONLY a JSON array of strings. No markdown. If no beers found, return [].' },
+        { text: 'List every beer name visible in this image. IGNORE any volume indicators like "44CL", "473ML", "330ML", etc. - extract only the beer names. Return ONLY a JSON array of strings. No markdown. If no beers found, return [].' },
       ],
     }],
   });
