@@ -1,12 +1,12 @@
 import { injectable } from 'tsyringe';
 import fs from 'fs';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { AppError } from '../../../middlewares/error.middleware';
 import * as beersDb from '../../../services/db/beers/beers.db';
 import { cacheGet, cacheSet } from '../../../services/cache/cache';
 import { NormalizedBeer, GeminiResult, SearchResponse, SearchSource } from '../beers.model';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
 
 const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => ({
   query,
@@ -21,8 +21,6 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => (
 
 // Step 1: Generate an optimized Untappd search query for the beer.
 const callGeminiSearcher = async (name: string): Promise<string> => {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
   const prompt =
     `You are a search query optimizer for a beer application. Your goal is to find the exact Untappd URL for a specific beer.\n\n` +
     `Input: "${name}"\n\n` +
@@ -32,8 +30,11 @@ const callGeminiSearcher = async (name: string): Promise<string> => {
     `Return ONLY a JSON object in this format:\n` +
     `{"search_query": "specific beer name brewery site:untappd.com/b/"}`;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash',
+    contents: prompt,
+  });
+  const text = response.text ?? '';
 
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return `${name} site:untappd.com/b/`;
@@ -46,16 +47,10 @@ const callGeminiSearcher = async (name: string): Promise<string> => {
   }
 };
 
-// Step 2: Use the search query with grounding to retrieve and strictly extract beer data.
+// Step 2: Use the search query with grounding + urlContext to retrieve and strictly extract beer data.
 const callGeminiExtractor = async (name: string, searchQuery: string): Promise<NormalizedBeer> => {
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tools: [{ googleSearch: {} } as any],
-  });
-
   const prompt =
-    `Search for "${searchQuery}" to find the Untappd page for the beer "${name}".\n\n` +
+    `Search for "${searchQuery}" to find the Untappd page for the beer "${name}", then fetch and read that page.\n\n` +
     `You are a precision data extraction tool.\n\n` +
     `STRICT EXTRACTION RULES:\n` +
     `1. BREWERY: Extract the legal brewery name.\n` +
@@ -67,8 +62,14 @@ const callGeminiExtractor = async (name: string, searchQuery: string): Promise<N
     `Schema: {"beer_name":"","brewery":"","style":"","abv":0.0,"rating_score":0.0,"rating_count":0,"description":""}\n\n` +
     `Output ONLY the raw JSON. No markdown code blocks. No preamble.`;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-pro',
+    contents: prompt,
+    config: {
+      tools: [{ googleSearch: {} }, { urlContext: {} }],
+    },
+  });
+  const text = response.text ?? '';
 
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) return normalize({}, name);
@@ -102,13 +103,18 @@ const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
 const extractNamesFromImage = async (base64Data: string, mimeType: string): Promise<string[]> => {
   if (!process.env.GEMINI_API_KEY) throw new AppError(503, 'GEMINI_API_KEY is not configured');
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-  const result = await model.generateContent([
-    { inlineData: { data: base64Data, mimeType } },
-    'List every beer name visible in this image. Return ONLY a JSON array of strings. No markdown. If no beers found, return [].',
-  ]);
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash',
+    contents: [{
+      role: 'user',
+      parts: [
+        { inlineData: { data: base64Data, mimeType } },
+        { text: 'List every beer name visible in this image. Return ONLY a JSON array of strings. No markdown. If no beers found, return [].' },
+      ],
+    }],
+  });
+  const text = (response.text ?? '').trim();
 
-  const text = result.response.text().trim();
   const match = text.match(/\[[\s\S]*\]/);
   if (!match) return [];
 
