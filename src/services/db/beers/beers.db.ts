@@ -47,6 +47,9 @@ export const upsertBeer = async (beer: NormalizedBeer) => {
   });
 };
 
+export const findBeersByIds = async (ids: string[]) =>
+  prisma.beer.findMany({ where: { id: { in: ids } } });
+
 export const recordSearchHistory = async (
   userId: number | null,
   query: string,

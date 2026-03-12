@@ -1,9 +1,22 @@
 import { injectable } from 'tsyringe';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, GoogleGenerativeAIFetchError } from '@google/generative-ai';
 import { AppError } from '../../../middlewares/error.middleware';
 import * as beersDb from '../../../services/db/beers/beers.db';
 import { cacheGet, cacheSet } from '../../../services/cache/cache';
 import { NormalizedBeer, GeminiResult, POPULAR_NAMES } from '../beers.model';
+
+// Retry Gemini call on 429 with exponential backoff
+const withRetry = async <T>(fn: () => Promise<T>, retries = 3, delayMs = 1000): Promise<T> => {
+  try {
+    return await fn();
+  } catch (err) {
+    if (retries > 0 && err instanceof GoogleGenerativeAIFetchError && err.status === 429) {
+      await new Promise((r) => setTimeout(r, delayMs));
+      return withRetry(fn, retries - 1, delayMs * 2);
+    }
+    throw err;
+  }
+};
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
 
@@ -21,9 +34,29 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => (
 @injectable()
 export class GetPopularBeersUseCase {
   public async execute(): Promise<{ results: NormalizedBeer[] }> {
+    // 1. In-memory cache (survives within the same serverless instance lifetime)
     const hit = cacheGet<NormalizedBeer[]>('popular_beers');
     if (hit) return { results: hit };
 
+    // 2. DB cache — persists across cold starts, avoids Gemini on every invocation
+    const slugIds = POPULAR_NAMES.map((n) => beersDb.slugify(n));
+    const dbRows = await beersDb.findBeersByIds(slugIds);
+    if (dbRows.length === POPULAR_NAMES.length) {
+      const results: NormalizedBeer[] = dbRows.map((r) => ({
+        query: r.beerName,
+        beer_name: r.beerName,
+        brewery: r.brewery,
+        style: r.style,
+        abv: r.abv ?? null,
+        rating_score: r.ratingScore ?? null,
+        rating_count: r.ratingCount ?? null,
+        description: r.description ?? null,
+      }));
+      cacheSet('popular_beers', results, 86400);
+      return { results };
+    }
+
+    // 3. Gemini — only called when DB doesn't have all beers yet
     if (!process.env.GEMINI_API_KEY) throw new AppError(503, 'GEMINI_API_KEY is not configured');
 
     const model = genAI.getGenerativeModel({
@@ -48,7 +81,7 @@ export class GetPopularBeersUseCase {
       `- description: 1-2 sentence flavor profile\n\n` +
       `Output JSON array only. No markdown. No extra text.`;
 
-    const result = await model.generateContent(prompt);
+    const result = await withRetry(() => model.generateContent(prompt));
     const text = result.response.text();
 
     let parsed: GeminiResult[];
