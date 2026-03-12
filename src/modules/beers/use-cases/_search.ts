@@ -19,10 +19,35 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => (
   description: g.description ?? null,
 });
 
-// One Gemini call per beer so grounding focuses on a single page — prevents
-// numeric values (ABV, rating_score, rating_count) being mixed across results.
-const callGeminiSingle = async (name: string): Promise<NormalizedBeer> => {
-   
+// Step 1: Generate an optimized Untappd search query for the beer.
+const callGeminiSearcher = async (name: string): Promise<string> => {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+  const prompt =
+    `You are a search query optimizer for a beer application. Your goal is to find the exact Untappd URL for a specific beer.\n\n` +
+    `Input: "${name}"\n\n` +
+    `Task:\n` +
+    `1. Construct a Google search query that targets the Untappd beer page.\n` +
+    `2. If the brewery name is known, include it.\n\n` +
+    `Return ONLY a JSON object in this format:\n` +
+    `{"search_query": "specific beer name brewery site:untappd.com/b/"}`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text();
+
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return `${name} site:untappd.com/b/`;
+
+  try {
+    const parsed = JSON.parse(match[0]) as { search_query?: string };
+    return parsed.search_query ?? `${name} site:untappd.com/b/`;
+  } catch {
+    return `${name} site:untappd.com/b/`;
+  }
+};
+
+// Step 2: Use the search query with grounding to retrieve and strictly extract beer data.
+const callGeminiExtractor = async (name: string, searchQuery: string): Promise<NormalizedBeer> => {
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.0-flash',
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,17 +55,17 @@ const callGeminiSingle = async (name: string): Promise<NormalizedBeer> => {
   });
 
   const prompt =
-    `You are a beer data specialist.\n` +
-    `Task: Search Untappd (untappd.com) for the beer "${name}" and return its exact metadata.\n\n` +
-    `Instructions:\n` +
-    `- Search for \"${name} site:untappd.com\" to find the exact Untappd page.\n` +
-    `- If there are multiple versions, use the one with the most check-ins.\n` +
-    `- abv: copy the exact ABV percentage shown on the page. NEVER return null if the beer is found on Untappd.\n` +
-    `- rating_score: copy the exact weighted average shown on the page (e.g. 3.86).\n` +
-    `- rating_count: copy the exact total Ratings count shown on the page (e.g. 1962). NEVER guess.\n` +
-    `- description: translate the brewery description to English if needed; 1-3 sentences.\n\n` +
+    `Search for "${searchQuery}" to find the Untappd page for the beer "${name}".\n\n` +
+    `You are a precision data extraction tool.\n\n` +
+    `STRICT EXTRACTION RULES:\n` +
+    `1. BREWERY: Extract the legal brewery name.\n` +
+    `2. ABV: Look for the "%" symbol. Convert it to a float. If "N/A", use 0.0.\n` +
+    `3. RATING_SCORE: This is the "Weighted Average." It must be a float between 0 and 5.\n` +
+    `4. RATING_COUNT: This is the total number of "Ratings". Remove commas and return as an integer.\n` +
+    `5. DESCRIPTION: Provide a 1-2 sentence English description based ONLY on the retrieved text.\n\n` +
+    `If the data is missing from the retrieved page, do not guess based on your training data. Use 0.0 or 0.\n\n` +
     `Schema: {"beer_name":"","brewery":"","style":"","abv":0.0,"rating_score":0.0,"rating_count":0,"description":""}\n\n` +
-    `Return ONLY the JSON object. No markdown. No extra text.`;
+    `Output ONLY the raw JSON. No markdown code blocks. No preamble.`;
 
   const result = await model.generateContent(prompt);
   const text = result.response.text();
@@ -54,6 +79,12 @@ const callGeminiSingle = async (name: string): Promise<NormalizedBeer> => {
   } catch {
     return normalize({}, name);
   }
+};
+
+// Two-step pipeline: Searcher → Extractor.
+const callGeminiSingle = async (name: string): Promise<NormalizedBeer> => {
+  const searchQuery = await callGeminiSearcher(name);
+  return callGeminiExtractor(name, searchQuery);
 };
 
 const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
