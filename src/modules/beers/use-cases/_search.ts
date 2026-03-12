@@ -21,7 +21,7 @@ const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
   if (!process.env.GEMINI_API_KEY) throw new AppError(503, 'GEMINI_API_KEY is not configured');
 
   const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
+    model: 'gemini-2.0-flash',
     generationConfig: { responseMimeType: 'application/json' },
   });
 
