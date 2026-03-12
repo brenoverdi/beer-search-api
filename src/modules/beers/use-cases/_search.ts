@@ -45,17 +45,18 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => (
 
 const callGeminiSingle = async (name: string): Promise<NormalizedBeer> => {
   const prompt =
-    `Search Google for: ${name} beer untappd rating ABV\n\n` +
-    `Find the Untappd page for this beer and extract:\n` +
-    `- beer_name: exact beer name\n` +
+    `Search for "${name}" on Untappd.com to find the beer's rating and details.\n\n` +
+    `IMPORTANT: On Untappd, ratings appear as a decimal number (e.g., "4.21") near the beer name, often followed by the count in parentheses like "(15,234)".\n\n` +
+    `Extract from the Untappd page:\n` +
+    `- beer_name: exact beer name as shown on Untappd\n` +
     `- brewery: brewery name\n` +
-    `- style: beer style (e.g. "IPA", "Stout", "Sour Ale")\n` +
-    `- abv: ABV as number (e.g. 5.0)\n` +
-    `- rating_score: Untappd rating (e.g. 3.86)\n` +
-    `- rating_count: number of ratings\n` +
-    `- description: 1-2 sentence description\n\n` +
+    `- style: beer style (e.g. "IPA", "Sour - Fruited", "Stout - Imperial")\n` +
+    `- abv: ABV percentage as number (e.g. 5.0, 8.5)\n` +
+    `- rating_score: the Untappd rating as decimal (e.g. 3.86, 4.21). This is the average rating shown prominently on the beer page.\n` +
+    `- rating_count: total number of check-ins/ratings (numeric, e.g. 15234)\n` +
+    `- description: brewery's description of the beer (1-2 sentences)\n\n` +
     `Return JSON: {"beer_name":"","brewery":"","style":"","abv":null,"rating_score":null,"rating_count":null,"description":""}\n` +
-    `Use null for any field not found. Output ONLY JSON, no markdown.`;
+    `Use null ONLY if the field truly cannot be found. Output ONLY valid JSON, no markdown or explanation.`;
 
   const response = await withRetry(() =>
     ai.models.generateContent({
