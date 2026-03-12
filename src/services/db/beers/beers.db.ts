@@ -1,0 +1,56 @@
+import prisma from '../../prisma/index';
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export interface NormalizedBeer {
+  query: string;
+  beer_name: string;
+  brewery: string;
+  style: string;
+  rating_score: number | null;
+  rating_count: number | null;
+}
+
+// ── DB helpers ───────────────────────────────────────────────────────────────
+
+export const slugify = (name: string): string =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 200);
+
+export const upsertBeer = async (beer: NormalizedBeer) => {
+  const id = slugify(beer.beer_name);
+  return prisma.beer.upsert({
+    where: { id },
+    create: {
+      id,
+      beerName: beer.beer_name,
+      brewery: beer.brewery,
+      style: beer.style,
+      ratingScore: beer.rating_score,
+      ratingCount: beer.rating_count,
+    },
+    update: {
+      brewery: beer.brewery,
+      style: beer.style,
+      ratingScore: beer.rating_score,
+      ratingCount: beer.rating_count,
+    },
+  });
+};
+
+export const recordSearchHistory = async (
+  userId: number | null,
+  query: string,
+  source: string,
+  resultCount: number,
+) =>
+  prisma.searchHistory.create({ data: { userId, query, source, resultCount } });
+
+export const getPopularFromDb = async (limit = 10) =>
+  prisma.beer.findMany({
+    orderBy: [{ ratingScore: 'desc' }, { beerName: 'asc' }],
+    take: limit,
+  });
