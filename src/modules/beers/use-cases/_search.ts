@@ -22,33 +22,43 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => (
 const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
   if (!process.env.GEMINI_API_KEY) throw new AppError(503, 'GEMINI_API_KEY is not configured');
 
+  // Google Search grounding is incompatible with responseMimeType:'application/json'
+  // so we extract JSON from the text response via regex instead.
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.0-flash',
-    generationConfig: { responseMimeType: 'application/json' },
+    tools: [{ googleSearchRetrieval: {} }],
   });
 
   const prompt =
-    `You are a beer database assistant with deep knowledge of Untappd (untappd.com), the world's largest beer check-in platform.\n` +
-    `For each beer name below, return its real data exactly as it appears on Untappd.\n` +
+    `You are a beer data specialist.\n` +
+    `Task: Provide exact Untappd (untappd.com) metadata for the following beers. ` +
+    `Use Google Search to look up each beer on Untappd before answering.\n\n` +
     `Input: ${JSON.stringify({ beers: names })}\n\n` +
-    `Return a JSON array with exactly ${names.length} objects in the same input order.\n` +
+    `Instructions:\n` +
+    `- If a beer has multiple versions (e.g. "Vintage" or "Barrel Aged"), use the most checked-in version unless the input name specifies otherwise.\n` +
+    `- Cross-reference the brewery name to ensure the beer belongs to that brewery on Untappd.\n` +
+    `- rating_count must be a real integer reflecting total historical check-ins from Untappd, not a guess.\n` +
+    `- Return exactly ${names.length} objects in the same order as the input.\n\n` +
     `Schema: [{"beer_name":"","brewery":"","style":"","abv":0.0,"rating_score":0.0,"rating_count":0,"description":""}]\n\n` +
     `Field rules:\n` +
     `- beer_name: exact beer name as listed on Untappd\n` +
     `- brewery: exact brewery name as listed on Untappd\n` +
     `- style: Untappd style (e.g. "IPA - Imperial / Double", "Stout - Imperial / Double", "Wheat Beer - Witbier")\n` +
-    `- abv: alcohol by volume as float (e.g. 8.0), null if unknown\n` +
+    `- abv: alcohol by volume as a float (e.g. 8.0), null if unknown\n` +
     `- rating_score: Untappd weighted average rating float 0-5, null if not on Untappd\n` +
-    `- rating_count: total Untappd check-ins as integer, null if not on Untappd\n` +
-    `- description: 1-2 sentence flavor profile\n\n` +
-    `Output JSON array only. No markdown. No extra text.`;
+    `- rating_count: total historical Untappd check-ins as integer, null if not on Untappd\n` +
+    `- description: 1-2 sentence flavor profile based on the Untappd brewery description\n\n` +
+    `Return ONLY the JSON array. No markdown. No extra text.`;
 
   const result = await model.generateContent(prompt);
   const text = result.response.text();
 
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) throw new AppError(502, 'Gemini returned no JSON array');
+
   let parsed: GeminiResult[];
   try {
-    parsed = JSON.parse(text) as GeminiResult[];
+    parsed = JSON.parse(jsonMatch[0]) as GeminiResult[];
   } catch {
     throw new AppError(502, 'Gemini returned invalid JSON');
   }
