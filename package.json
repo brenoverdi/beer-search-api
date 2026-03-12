@@ -4,6 +4,7 @@
   "description": "Backend API for beer search application with Untappd integration",
   "main": "dist/server.js",
   "scripts": {
+    "vercel-build": "prisma generate && tsc",
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
