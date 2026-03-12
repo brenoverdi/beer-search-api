@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import fs from 'fs';
 import path from 'path';
 import { container } from 'tsyringe';
 import { Request, Response, Router } from 'express';
@@ -9,8 +10,15 @@ import * as beersUseCases from './use-cases/index';
 
 const router = Router();
 
+// /tmp is the only writable directory in serverless environments (Vercel, Lambda)
+const uploadDir = process.env.NODE_ENV === 'production'
+  ? '/tmp/uploads'
+  : path.join(process.cwd(), 'uploads');
+
+fs.mkdirSync(uploadDir, { recursive: true });
+
 const upload = multer({
-  dest: path.join(process.cwd(), 'uploads'),
+  dest: uploadDir,
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
