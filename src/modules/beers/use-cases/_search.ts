@@ -8,6 +8,30 @@ import { NormalizedBeer, GeminiResult, SearchResponse, SearchSource } from '../b
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
 
+const isRetryable = (err: unknown): boolean => {
+  if (!(err instanceof Error)) return false;
+  const status = (err as { status?: number }).status;
+  if (status === 429 || status === 503) return true;
+  return (
+    err.message.includes('429') ||
+    err.message.includes('RESOURCE_EXHAUSTED') ||
+    err.message.includes('503') ||
+    err.message.includes('UNAVAILABLE')
+  );
+};
+
+const withRetry = async <T>(fn: () => Promise<T>, retries = 3, delayMs = 1000): Promise<T> => {
+  try {
+    return await fn();
+  } catch (err) {
+    if (retries > 0 && isRetryable(err)) {
+      await new Promise((r) => setTimeout(r, delayMs));
+      return withRetry(fn, retries - 1, delayMs * 2);
+    }
+    throw err;
+  }
+};
+
 const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => ({
   query,
   beer_name: g.beer_name ?? query,
@@ -62,13 +86,15 @@ const callGeminiExtractor = async (name: string, searchQuery: string): Promise<N
     `Schema: {"beer_name":"","brewery":"","style":"","abv":0.0,"rating_score":0.0,"rating_count":0,"description":""}\n\n` +
     `Output ONLY the raw JSON. No markdown code blocks. No preamble.`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-pro',
-    contents: prompt,
-    config: {
-      tools: [{ googleSearch: {} }, { urlContext: {} }],
-    },
-  });
+  const response = await withRetry(() =>
+    ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }, { urlContext: {} }],
+      },
+    })
+  );
   const text = response.text ?? '';
 
   const jsonMatch = text.match(/\{[\s\S]*\}/);

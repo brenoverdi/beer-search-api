@@ -5,19 +5,24 @@ import * as beersDb from '../../../services/db/beers/beers.db';
 import { cacheGet, cacheSet } from '../../../services/cache/cache';
 import { NormalizedBeer, GeminiResult, POPULAR_NAMES } from '../beers.model';
 
-const is429 = (err: unknown): boolean => {
+const isRetryable = (err: unknown): boolean => {
   if (!(err instanceof Error)) return false;
   const status = (err as { status?: number }).status;
-  if (status === 429) return true;
-  return err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED');
+  if (status === 429 || status === 503) return true;
+  return (
+    err.message.includes('429') ||
+    err.message.includes('RESOURCE_EXHAUSTED') ||
+    err.message.includes('503') ||
+    err.message.includes('UNAVAILABLE')
+  );
 };
 
-// Retry Gemini call on 429 with exponential backoff
+// Retry Gemini call on 429/503 with exponential backoff
 const withRetry = async <T>(fn: () => Promise<T>, retries = 3, delayMs = 1000): Promise<T> => {
   try {
     return await fn();
   } catch (err) {
-    if (retries > 0 && is429(err)) {
+    if (retries > 0 && isRetryable(err)) {
       await new Promise((r) => setTimeout(r, delayMs));
       return withRetry(fn, retries - 1, delayMs * 2);
     }
@@ -79,7 +84,7 @@ const callExtractor = async (name: string, searchQuery: string): Promise<Normali
 
   const response = await withRetry(() =>
     ai.models.generateContent({
-      model: 'gemini-2.5-pro',
+      model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }, { urlContext: {} }],
