@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { container } from 'tsyringe';
 import { Request, Response, Router } from 'express';
@@ -10,11 +11,8 @@ import * as beersUseCases from './use-cases/index';
 
 const router = Router();
 
-// /tmp is the only writable directory in serverless environments (Vercel, Lambda)
-const uploadDir = process.env.NODE_ENV === 'production'
-  ? '/tmp/uploads'
-  : path.join(process.cwd(), 'uploads');
-
+// os.tmpdir() → /tmp on Vercel/Lambda Linux, system temp dir on Windows — always writable
+const uploadDir = path.join(os.tmpdir(), 'beer-uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
 
 const upload = multer({
