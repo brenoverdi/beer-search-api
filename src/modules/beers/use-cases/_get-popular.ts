@@ -6,6 +6,20 @@ import { cacheGet, cacheSet } from '../../../services/cache/cache';
 import { NormalizedBeer, GeminiResult, POPULAR_NAMES } from '../beers.model';
 import { scrapeUntappdBeers } from '../../../services/scraper/untappd-scraper';
 
+/**
+ * Clean beer name by removing style suffixes that Gemini might include.
+ * Examples:
+ *   "Guinness Draught - Stout - Irish Dry" -> "Guinness Draught"
+ *   "Sierra Nevada Pale Ale - Pale Ale - American" -> "Sierra Nevada Pale Ale"
+ */
+const cleanBeerName = (name: string): string => {
+  // Remove style suffixes like " - IPA - Imperial", " - Stout - Irish Dry", etc.
+  // Common style keywords to strip
+  const stylePattern = /\s*-\s*(IPA|Stout|Lager|Ale|Porter|Pilsner|Wheat|Sour|Saison|Lambic|Gose|Kolsch|Bitter|Brown|Amber|Red|Blonde|Golden|Dark|Light|Imperial|Double|Triple|Quad|Session|Hazy|New England|West Coast|American|Belgian|German|English|Irish|Scottish|Czech|Baltic|Dry|Milk|Oatmeal|Coffee|Chocolate|Vanilla|Barrel[- ]Aged|Wood[- ]Aged|Farmhouse|Wild|Spontaneous|Fruited|Berliner|Weisse|Hefeweizen|Dunkel|Bock|Maibock|Doppelbock|Marzen|Oktoberfest|Rauchbier|Schwarzbier|Vienna|Pale|India|New England|Hazy|Juicy|Tropical|Citrus|Pine|Resinous|Hoppy|Malty|Sweet|Bitter|Tart|Funky|Earthy|Spicy|Crisp|Smooth|Creamy|Full[- ]Bodied|Light[- ]Bodied|Medium[- ]Bodied)(?:\s*-\s*[A-Za-z\s]+)?$/i;
+  
+  return name.replace(stylePattern, '').trim();
+};
+
 const isRetryable = (err: unknown): boolean => {
   if (!(err instanceof Error)) return false;
   const status = (err as { status?: number }).status;
@@ -48,7 +62,7 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => {
   
   return {
     query,
-    beer_name: g.beer_name ?? query,
+    beer_name: g.beer_name ? cleanBeerName(g.beer_name) : query,
     brewery: g.brewery ?? 'Unknown',
     style: g.style ?? 'Unknown',
     abv: g.abv ?? null,
@@ -67,7 +81,7 @@ const callGeminiFallback = async (names: string[]): Promise<NormalizedBeer[]> =>
     `You are a beer expert with comprehensive knowledge of craft beers, breweries, and beer ratings.\n\n` +
     `For each of the following beers, provide details based on your knowledge:\n${beerListStr}\n\n` +
     `For each beer, provide:\n` +
-    `- beer_name: the canonical/official beer name\n` +
+    `- beer_name: ONLY the beer name itself, WITHOUT style suffixes (e.g. "Guinness Draught" NOT "Guinness Draught - Stout")\n` +
     `- brewery: brewery name\n` +
     `- style: beer style (e.g. "IPA", "Sour - Fruited", "Stout - Imperial")\n` +
     `- abv: ABV percentage as number (e.g. 5.0, 8.5)\n` +
@@ -161,13 +175,19 @@ const fetchPopularBeers = async (names: string[]): Promise<NormalizedBeer[]> => 
 @injectable()
 export class GetPopularBeersUseCase {
   public async execute(): Promise<{ results: NormalizedBeer[] }> {
+    console.log('[GetPopular] Execute started');
     // 1. In-memory cache (survives within the same serverless instance lifetime)
     const hit = cacheGet<NormalizedBeer[]>('popular_beers');
-    if (hit) return { results: hit };
+    if (hit) {
+      console.log('[GetPopular] Cache hit (in-memory), returning', hit.length, 'beers');
+      return { results: hit };
+    }
 
     // 2. DB cache — persists across cold starts, avoids Gemini on every invocation
+    console.log('[GetPopular] Cache miss (in-memory), checking database...');
     const slugIds = POPULAR_NAMES.map((n) => beersDb.slugify(n));
     const dbRows = await beersDb.findBeersByIds(slugIds);
+    console.log(`[GetPopular] Found ${dbRows.length}/${POPULAR_NAMES.length} beers in database`);
     if (dbRows.length === POPULAR_NAMES.length) {
       const results: NormalizedBeer[] = dbRows.map((r) => ({
         query: r.beerName,
@@ -179,15 +199,19 @@ export class GetPopularBeersUseCase {
         rating_count: r.ratingCount ?? null,
         description: r.description ?? null,
       }));
+      console.log('[GetPopular] Returning from database cache');
       cacheSet('popular_beers', results, 86400);
       return { results };
     }
 
     // 3. Fetch from Untappd (with Gemini fallback)
+    console.log('[GetPopular] Database incomplete, fetching from Untappd...');
     const results = await fetchPopularBeers(POPULAR_NAMES);
 
+    console.log('[GetPopular] Saving', results.length, 'beers to database');
     await Promise.all(results.map((b) => beersDb.upsertBeer(b)));
     cacheSet('popular_beers', results, 86400);
+    console.log('[GetPopular] Complete, returning fresh data');
 
     return { results };
   }

@@ -12,6 +12,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "seed:festivals": "tsx src/scripts/seed-festivals.ts",
+    "clear:popular": "tsx src/scripts/clear-popular-cache.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.mts",

@@ -28,7 +28,10 @@ const searchLimiter = rateLimit({
 
 // GET /api/beers/popular
 router.get('/beers/popular', async (_req: Request, res: Response) => {
+  console.log('[Route] GET /api/beers/popular - Request received');
+  const startTime = Date.now();
   const result = await container.resolve(beersUseCases.GetPopularBeersUseCase).execute();
+  console.log(`[Route] GET /api/beers/popular - Completed in ${Date.now() - startTime}ms, returned ${result.results.length} beers`);
   res.status(200).json(result);
 });
 
@@ -39,9 +42,19 @@ router.post(
   verifyMiddleware.optionalAuth,
   upload.single('image'),
   async (req: Request, res: Response) => {
+    console.log('[Route] POST /api/beers/search - Request received', {
+      hasImage: !!req.file,
+      beers: req.body.beers,
+      userId: req.userId,
+    });
+    const startTime = Date.now();
     const result = await container
       .resolve(beersUseCases.SearchBeersUseCase)
       .execute(req.body.beers, req.file, req.userId);
+    console.log(`[Route] POST /api/beers/search - Completed in ${Date.now() - startTime}ms`, {
+      source: result.source,
+      beerCount: result.results.length,
+    });
     res.status(200).json(result);
   },
 );
@@ -52,9 +65,18 @@ router.post(
   searchLimiter,
   verifyMiddleware.optionalAuth,
   async (req: Request, res: Response) => {
+    console.log('[Route] POST /api/beers/search-from-url - Request received', {
+      url: req.body.url,
+      userId: req.userId,
+    });
+    const startTime = Date.now();
     const result = await container
       .resolve(beersUseCases.SearchBeersFromUrlUseCase)
       .execute(req.body.url, req.userId);
+    console.log(`[Route] POST /api/beers/search-from-url - Completed in ${Date.now() - startTime}ms`, {
+      source: result.source,
+      beerCount: result.results.length,
+    });
     res.status(200).json(result);
   },
 );

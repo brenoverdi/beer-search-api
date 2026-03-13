@@ -11,6 +11,20 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
+/**
+ * Clean beer name by removing style suffixes that Gemini might include.
+ * Examples:
+ *   "Guinness Draught - Stout - Irish Dry" -> "Guinness Draught"
+ *   "Sierra Nevada Pale Ale - Pale Ale - American" -> "Sierra Nevada Pale Ale"
+ */
+const cleanBeerName = (name: string): string => {
+  // Remove style suffixes like " - IPA - Imperial", " - Stout - Irish Dry", etc.
+  // Common style keywords to strip
+  const stylePattern = /\s*-\s*(IPA|Stout|Lager|Ale|Porter|Pilsner|Wheat|Sour|Saison|Lambic|Gose|Kolsch|Bitter|Brown|Amber|Red|Blonde|Golden|Dark|Light|Imperial|Double|Triple|Quad|Session|Hazy|New England|West Coast|American|Belgian|German|English|Irish|Scottish|Czech|Baltic|Dry|Milk|Oatmeal|Coffee|Chocolate|Vanilla|Barrel[- ]Aged|Wood[- ]Aged|Farmhouse|Wild|Spontaneous|Fruited|Berliner|Weisse|Hefeweizen|Dunkel|Bock|Maibock|Doppelbock|Marzen|Oktoberfest|Rauchbier|Schwarzbier|Vienna|Pale|India|New England|Hazy|Juicy|Tropical|Citrus|Pine|Resinous|Hoppy|Malty|Sweet|Bitter|Tart|Funky|Earthy|Spicy|Crisp|Smooth|Creamy|Full[- ]Bodied|Light[- ]Bodied|Medium[- ]Bodied)(?:\s*-\s*[A-Za-z\s]+)?$/i;
+  
+  return name.replace(stylePattern, '').trim();
+};
+
 const isRetryable = (err: unknown): boolean => {
   if (!(err instanceof Error)) return false;
   const status = (err as { status?: number }).status;
@@ -43,7 +57,7 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 
 const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => ({
   query,
-  beer_name: g.beer_name ?? query,
+  beer_name: g.beer_name ? cleanBeerName(g.beer_name) : query,
   brewery: g.brewery ?? 'Unknown',
   style: g.style ?? 'Unknown',
   abv: g.abv ?? null,
@@ -71,9 +85,13 @@ const extractNamesFromContent = async (pageContent: string, pageTitle: string): 
     `- Brewery + beer name combinations like "Sierra Nevada Pale Ale"\n` +
     `- Craft beer names with descriptive titles\n` +
     `- Beer names in different languages (Italian, Portuguese, German, etc.)\n\n` +
+    `IMPORTANT: Extract ONLY the beer name itself, WITHOUT any style descriptors.\n` +
+    `CORRECT: "Guinness Draught", "Pliny the Elder", "Sierra Nevada Pale Ale"\n` +
+    `WRONG: "Guinness Draught - Stout", "Pliny the Elder - IPA", "Sierra Nevada Pale Ale - American Pale Ale"\n\n` +
     `IGNORE:\n` +
     `- Volume sizes (330ml, 473ml, pints, etc.)\n` +
     `- Prices and currencies\n` +
+    `- Style suffixes or descriptors (IPA, Stout, Lager, etc. should not be appended to beer names)\n` +
     `- Generic style categories alone (just "IPA" or "Stout" without a specific beer name)\n` +
     `- Navigation menu items, website headers, footers\n` +
     `- Descriptions and promotional text\n\n` +
@@ -93,11 +111,21 @@ const extractNamesFromContent = async (pageContent: string, pageTitle: string): 
   if (!match) return [];
 
   try {
-    const names = JSON.parse(match[0]) as unknown[];
-    return names
+    const rawNames = JSON.parse(match[0]) as unknown[];
+    const filteredNames = rawNames
       .filter((n): n is string => typeof n === 'string' && n.trim().length > 2)
-      .map((n) => n.trim())
-      .slice(0, 50);
+      .map((n) => n.trim());
+    
+    const cleanedNames = filteredNames.map((n) => cleanBeerName(n));
+    console.log(`[URLSearch] Extracted raw beer names: ${JSON.stringify(filteredNames)}`);
+    // Log any names that were cleaned (had styles removed)
+    filteredNames.forEach((raw, i) => {
+      if (raw !== cleanedNames[i]) {
+        console.log(`[URLSearch] Cleaned beer name: "${raw}" → "${cleanedNames[i]}"`);
+      }
+    });
+    
+    return cleanedNames.slice(0, 50);
   } catch {
     return [];
   }
@@ -114,7 +142,7 @@ const callGeminiFallback = async (names: string[]): Promise<NormalizedBeer[]> =>
     `You are a beer expert with comprehensive knowledge of craft beers, breweries, and beer ratings.\n\n` +
     `For each of the following beers, provide details based on your knowledge:\n${beerListStr}\n\n` +
     `For each beer, provide:\n` +
-    `- beer_name: the canonical/official beer name\n` +
+    `- beer_name: ONLY the beer name itself, WITHOUT style suffixes (e.g. "Guinness Draught" NOT "Guinness Draught - Stout")\n` +
     `- brewery: brewery name\n` +
     `- style: beer style (e.g. "IPA", "Sour - Fruited", "Stout - Imperial")\n` +
     `- abv: ABV percentage as number (e.g. 5.0, 8.5)\n` +
@@ -241,8 +269,9 @@ export class SearchBeersFromUrlUseCase {
     console.log(`[URLSearch] Scraped ${scrapeResult.content.length} chars from "${scrapeResult.title}"`);
 
     // Step 2: Extract beer names from the scraped content using Gemini
-    const names = await extractNamesFromContent(scrapeResult.content, scrapeResult.title);
-
+    let names = await extractNamesFromContent(scrapeResult.content, scrapeResult.title);
+    names = Array.from(new Set(names)); // Deduplicate
+    names = names.map((n) => cleanBeerName(n)); // Final clean-up
     console.log(`[URLSearch] Extracted ${names.length} beer names`);
 
     if (names.length === 0) {
