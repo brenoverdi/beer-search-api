@@ -25,6 +25,89 @@ const cleanBeerName = (name: string): string => {
   return name.replace(stylePattern, '').trim();
 };
 
+// ── Detect if URL is a single brewery website ─────────────────────────────────
+
+interface BreweryDetectionResult {
+  isSingleBrewery: boolean;
+  breweryName: string | null;
+}
+
+const detectBreweryWebsite = async (url: string, pageContent: string, pageTitle: string): Promise<BreweryDetectionResult> => {
+  // Pre-check: common multi-brewery store domains
+  const multiBreweryStores = [
+    'totalwine', 'drizly', 'bevmo', 'binnys', 'craftshack',
+    'tavour', 'beer cartel', 'honest brew', 'beerwulf', 'bottleshop',
+    'beerstore', 'beermart', 'liquor', 'wine', 'spirits', 'beverage'
+  ];
+  
+  const urlLower = url.toLowerCase();
+  const titleLower = pageTitle.toLowerCase();
+  
+  for (const store of multiBreweryStores) {
+    if (urlLower.includes(store) || titleLower.includes(store)) {
+      console.log(`[BreweryDetection] Detected multi-brewery store from URL/title: ${store}`);
+      return { isSingleBrewery: false, breweryName: null };
+    }
+  }
+
+  // Use Gemini to analyze the page content
+  if (!process.env.GEMINI_API_KEY) {
+    console.log('[BreweryDetection] GEMINI_API_KEY not configured, skipping brewery detection');
+    return { isSingleBrewery: false, breweryName: null };
+  }
+
+  const truncatedContent = pageContent.length > 20000 
+    ? pageContent.substring(0, 20000) + '...' 
+    : pageContent;
+
+  const prompt =
+    `Analyze this webpage to determine if it's a single brewery's website or a multi-brewery store/retailer.\n\n` +
+    `URL: ${url}\n` +
+    `Page Title: ${pageTitle}\n\n` +
+    `---PAGE CONTENT START---\n${truncatedContent}\n---PAGE CONTENT END---\n\n` +
+    `Determine:\n` +
+    `1. Is this the website of a SINGLE brewery (one brewery selling/showcasing their own beers)?\n` +
+    `2. Or is this a MULTI-BREWERY store/retailer (selling beers from multiple different breweries)?\n\n` +
+    `If it's a single brewery, extract the brewery name. The brewery name should be:\n` +
+    `- The PRIMARY name or FIRST NAME only (e.g., "Salvador" not "Salvador Brewing Company")\n` +
+    `- OR if it's a COMPOSED name, include all parts (e.g., "Tree House", "Russian River", "Sierra Nevada")\n` +
+    `- Examples: "Salvador", "Tree House", "Russian River", "Stone", "Dogfish Head"\n` +
+    `- NOT full legal names like "Salvador Brewing Company Ltd."\n\n` +
+    `Return ONLY valid JSON in this exact format:\n` +
+    `{"isSingleBrewery": true/false, "breweryName": "Name" or null}\n\n` +
+    `No markdown, no explanation, just the JSON object.`;
+
+  try {
+    const response = await withRetry(() =>
+      ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      })
+    );
+
+    const text = (response.text ?? '').trim();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    
+    if (!jsonMatch) {
+      console.log('[BreweryDetection] No valid JSON response from Gemini');
+      return { isSingleBrewery: false, breweryName: null };
+    }
+
+    const result = JSON.parse(jsonMatch[0]) as BreweryDetectionResult;
+    
+    if (result.isSingleBrewery && result.breweryName) {
+      console.log(`[BreweryDetection] Detected single brewery: "${result.breweryName}"`);
+    } else {
+      console.log('[BreweryDetection] Detected multi-brewery store/retailer');
+    }
+    
+    return result;
+  } catch (err) {
+    console.error('[BreweryDetection] Error detecting brewery:', err);
+    return { isSingleBrewery: false, breweryName: null };
+  }
+};
+
 const isRetryable = (err: unknown): boolean => {
   if (!(err instanceof Error)) return false;
   const status = (err as { status?: number }).status;
@@ -68,7 +151,11 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => (
 
 // ── Extract beer names from scraped content ───────────────────────────────────
 
-const extractNamesFromContent = async (pageContent: string, pageTitle: string): Promise<string[]> => {
+const extractNamesFromContent = async (
+  pageContent: string, 
+  pageTitle: string, 
+  detectedBrewery: BreweryDetectionResult | null = null
+): Promise<string[]> => {
   if (!process.env.GEMINI_API_KEY) throw new AppError(503, 'GEMINI_API_KEY is not configured');
 
   // Truncate content if too long (keep it under token limits)
@@ -76,31 +163,62 @@ const extractNamesFromContent = async (pageContent: string, pageTitle: string): 
     ? pageContent.substring(0, 30000) + '...' 
     : pageContent;
 
-  const prompt =
-    `Analyze this text content from a beer-related webpage titled "${pageTitle}":\n\n` +
-    `---PAGE CONTENT START---\n${truncatedContent}\n---PAGE CONTENT END---\n\n` +
-    `This is likely a bar menu, tap list, beer list, beer store catalog, or brewery page.\n\n` +
-    `Extract ALL specific beer names mentioned. For EACH beer, include the brewery name if visible.\n` +
-    `Format: "Brewery BeerName" (e.g., "Russian River Pliny the Elder", "Sierra Nevada Pale Ale")\n` +
-    `If brewery is not visible, use just the beer name (e.g., "Heady Topper", "Founders KBS")\n\n` +
-    `Look for:\n` +
-    `- Named beers with breweries: "Russian River Pliny the Elder", "Bell's Two Hearted Ale"\n` +
-    `- Brewery + beer name combinations: "Sierra Nevada Pale Ale", "Dogfish Head 60 Minute IPA"\n` +
-    `- Craft beer names with descriptive titles\n` +
-    `- Beer names in different languages (Italian, Portuguese, German, etc.)\n\n` +
-    `IMPORTANT: Extract ONLY "Brewery BeerName", WITHOUT any style descriptors.\n` +
-    `CORRECT: "Guinness Draught", "Russian River Pliny the Elder", "Sierra Nevada Pale Ale"\n` +
-    `WRONG: "Guinness Draught - Stout", "Pliny the Elder - IPA", "Sierra Nevada Pale Ale - American Pale Ale"\n\n` +
-    `IGNORE:\n` +
-    `- Volume sizes (330ml, 473ml, pints, etc.)\n` +
-    `- Prices and currencies\n` +
-    `- Style suffixes or descriptors (IPA, Stout, Lager, etc. should not be appended)\n` +
-    `- Generic style categories alone (just "IPA" or "Stout" without a specific beer name)\n` +
-    `- Navigation menu items, website headers, footers\n` +
-    `- Descriptions and promotional text\n\n` +
-    `Return ONLY a valid JSON array of strings in "Brewery BeerName" format, maximum 50 beers.\n` +
-    `Example: ["Russian River Pliny the Elder", "Heady Topper", "Bell's Two Hearted Ale"]\n` +
-    `If no specific beers found, return []. Output ONLY valid JSON, no markdown or explanation.`;
+  // Different prompt based on whether this is a single brewery or multi-brewery store
+  let prompt: string;
+
+  if (detectedBrewery?.isSingleBrewery && detectedBrewery.breweryName) {
+    // Single brewery: extract ONLY beer names, we'll prefix with brewery name later
+    prompt =
+      `Analyze this text content from "${detectedBrewery.breweryName}" brewery's webpage titled "${pageTitle}":\n\n` +
+      `---PAGE CONTENT START---\n${truncatedContent}\n---PAGE CONTENT END---\n\n` +
+      `This is the website of "${detectedBrewery.breweryName}" brewery.\n\n` +
+      `Extract ALL specific beer names from this brewery. Extract ONLY the beer names themselves, WITHOUT the brewery name prefix.\n` +
+      `Format: Just the beer name (e.g., "Pliny the Elder", "Pale Ale", "Batalhão", "Kame Hame Ha")\n\n` +
+      `Look for:\n` +
+      `- Beer names listed on the page\n` +
+      `- Product names that are beers\n` +
+      `- Tap list items\n` +
+      `- Beer names in different languages (Italian, Portuguese, German, etc.)\n\n` +
+      `IMPORTANT: Extract ONLY the beer name, WITHOUT brewery prefix or style suffixes.\n` +
+      `CORRECT: "Batalhão", "Kame Hame Ha", "Pale Ale", "Two Hearted Ale"\n` +
+      `WRONG: "${detectedBrewery.breweryName} Batalhão", "Batalhão - IPA", "Salvador Kame Hame Ha"\n\n` +
+      `IGNORE:\n` +
+      `- Volume sizes (330ml, 473ml, pints, etc.)\n` +
+      `- Prices and currencies\n` +
+      `- Style suffixes (IPA, Stout, Lager, etc.)\n` +
+      `- Generic categories (just "IPA" or "Lager" without specific name)\n` +
+      `- Navigation menu, headers, footers\n\n` +
+      `Return ONLY a valid JSON array of beer name strings, maximum 50 beers.\n` +
+      `Example: ["Batalhão", "Kame Hame Ha", "Pale Ale"]\n` +
+      `If no beers found, return []. Output ONLY valid JSON, no markdown or explanation.`;
+  } else {
+    // Multi-brewery store: extract "Brewery BeerName" (current behavior)
+    prompt =
+      `Analyze this text content from a beer-related webpage titled "${pageTitle}":\n\n` +
+      `---PAGE CONTENT START---\n${truncatedContent}\n---PAGE CONTENT END---\n\n` +
+      `This is likely a bar menu, tap list, beer list, beer store catalog, or brewery page.\n\n` +
+      `Extract ALL specific beer names mentioned. For EACH beer, include the brewery name if visible.\n` +
+      `Format: "Brewery BeerName" (e.g., "Russian River Pliny the Elder", "Sierra Nevada Pale Ale")\n` +
+      `If brewery is not visible, use just the beer name (e.g., "Heady Topper", "Founders KBS")\n\n` +
+      `Look for:\n` +
+      `- Named beers with breweries: "Russian River Pliny the Elder", "Bell's Two Hearted Ale"\n` +
+      `- Brewery + beer name combinations: "Sierra Nevada Pale Ale", "Dogfish Head 60 Minute IPA"\n` +
+      `- Craft beer names with descriptive titles\n` +
+      `- Beer names in different languages (Italian, Portuguese, German, etc.)\n\n` +
+      `IMPORTANT: Extract ONLY "Brewery BeerName", WITHOUT any style descriptors.\n` +
+      `CORRECT: "Guinness Draught", "Russian River Pliny the Elder", "Sierra Nevada Pale Ale"\n` +
+      `WRONG: "Guinness Draught - Stout", "Pliny the Elder - IPA", "Sierra Nevada Pale Ale - American Pale Ale"\n\n` +
+      `IGNORE:\n` +
+      `- Volume sizes (330ml, 473ml, pints, etc.)\n` +
+      `- Prices and currencies\n` +
+      `- Style suffixes or descriptors (IPA, Stout, Lager, etc. should not be appended)\n` +
+      `- Generic style categories alone (just "IPA" or "Stout" without a specific beer name)\n` +
+      `- Navigation menu items, website headers, footers\n` +
+      `- Descriptions and promotional text\n\n` +
+      `Return ONLY a valid JSON array of strings in "Brewery BeerName" format, maximum 50 beers.\n` +
+      `Example: ["Russian River Pliny the Elder", "Heady Topper", "Bell's Two Hearted Ale"]\n` +
+      `If no specific beers found, return []. Output ONLY valid JSON, no markdown or explanation.`;
+  }
 
   const response = await withRetry(() =>
     ai.models.generateContent({
@@ -115,12 +233,18 @@ const extractNamesFromContent = async (pageContent: string, pageTitle: string): 
 
   try {
     const rawNames = JSON.parse(match[0]) as unknown[];
-    const filteredNames = rawNames
+    let filteredNames = rawNames
       .filter((n): n is string => typeof n === 'string' && n.trim().length > 2)
       .map((n) => n.trim());
     
+    // If single brewery detected, prefix each beer name with the brewery
+    if (detectedBrewery?.isSingleBrewery && detectedBrewery.breweryName) {
+      filteredNames = filteredNames.map(beerName => `${detectedBrewery.breweryName} ${beerName}`);
+      console.log(`[URLSearch] Prefixed ${filteredNames.length} beers with brewery "${detectedBrewery.breweryName}"`);
+    }
+    
     const cleanedNames = filteredNames.map((n) => cleanBeerName(n));
-    console.log(`[URLSearch] Extracted raw beer names: ${JSON.stringify(filteredNames)}`);
+    console.log(`[URLSearch] Extracted beer names: ${JSON.stringify(cleanedNames)}`);
     // Log any names that were cleaned (had styles removed)
     filteredNames.forEach((raw, i) => {
       if (raw !== cleanedNames[i]) {
@@ -271,8 +395,11 @@ export class SearchBeersFromUrlUseCase {
 
     console.log(`[URLSearch] Scraped ${scrapeResult.content.length} chars from "${scrapeResult.title}"`);
 
-    // Step 2: Extract beer names from the scraped content using Gemini
-    let names = await extractNamesFromContent(scrapeResult.content, scrapeResult.title);
+    // Step 2: Detect if this is a single brewery's website
+    const breweryDetection = await detectBreweryWebsite(url, scrapeResult.content, scrapeResult.title);
+
+    // Step 3: Extract beer names from the scraped content using Gemini
+    let names = await extractNamesFromContent(scrapeResult.content, scrapeResult.title, breweryDetection);
     names = Array.from(new Set(names)); // Deduplicate
     names = names.map((n) => cleanBeerName(n)); // Final clean-up
     console.log(`[URLSearch] Extracted ${names.length} beer names`);
