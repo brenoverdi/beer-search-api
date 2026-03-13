@@ -4,6 +4,7 @@ import { AppError } from '../../../middlewares/error.middleware';
 import * as beersDb from '../../../services/db/beers/beers.db';
 import { cacheGet, cacheSet } from '../../../services/cache/cache';
 import { NormalizedBeer, GeminiResult, POPULAR_NAMES } from '../beers.model';
+import { scrapeUntappdBeers } from '../../../services/scraper/untappd-scraper';
 
 const isRetryable = (err: unknown): boolean => {
   if (!(err instanceof Error)) return false;
@@ -30,6 +31,12 @@ const withRetry = async <T>(fn: () => Promise<T>, retries = 3, delayMs = 1000): 
   }
 };
 
+const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
+  Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
 
 const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => {
@@ -51,65 +58,101 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => {
   };
 };
 
-const callSingle = async (name: string, isRetryAttempt = false): Promise<NormalizedBeer> => {
-  // Enhanced prompt for better rating extraction
-  const prompt = isRetryAttempt
-    ? `I need the Untappd rating for the beer "${name}". ` +
-      `Search for this beer on Untappd.com. The rating is usually displayed as a decimal number between 1.0 and 5.0 (like 4.21 or 3.86). ` +
-      `The number of check-ins/ratings is shown in parentheses like "(15,234)". ` +
-      `Return ONLY this JSON: {"beer_name":"${name}","brewery":"","style":"","abv":null,"rating_score":null,"rating_count":null,"description":""} ` +
-      `Fill in what you find. rating_score MUST be a decimal like 4.21. Output ONLY valid JSON.`
-    : `Search for "${name}" on Untappd.com to find the beer's rating and details.\n\n` +
-      `IMPORTANT: On Untappd, the rating appears as a decimal number between 1.0 and 5.0, displayed prominently near the beer name. ` +
-      `It looks like "4.21" followed by the rating count in parentheses like "(15,234 Ratings)".\n\n` +
-      `Extract from the Untappd page:\n` +
-      `- beer_name: exact beer name as shown on Untappd\n` +
-      `- brewery: brewery name\n` +
-      `- style: beer style (e.g. "Imperial IPA", "Quadrupel", "Imperial Stout")\n` +
-      `- abv: ABV percentage as number (e.g. 10.2, 8.0)\n` +
-      `- rating_score: the Untappd rating as a decimal between 1.0 and 5.0 (e.g. 4.21, 3.86)\n` +
-      `- rating_count: total number of check-ins/ratings as integer (e.g. 15234)\n` +
-      `- description: brewery's description of the beer (1-2 sentences)\n\n` +
-      `Return JSON: {"beer_name":"","brewery":"","style":"","abv":null,"rating_score":null,"rating_count":null,"description":""}\n` +
-      `CRITICAL: rating_score must be a decimal number like 4.21, NOT null if you can find it on Untappd.\n` +
-      `Output ONLY valid JSON, no markdown or explanation.`;
+// Gemini fallback for beers not found on Untappd
+const callGeminiFallback = async (names: string[]): Promise<NormalizedBeer[]> => {
+  if (names.length === 0) return [];
 
-  const response = await withRetry(() =>
+  const beerListStr = names.map((n, i) => `${i + 1}. "${n}"`).join('\n');
+  const prompt =
+    `You are a beer expert with comprehensive knowledge of craft beers, breweries, and beer ratings.\n\n` +
+    `For each of the following beers, provide details based on your knowledge:\n${beerListStr}\n\n` +
+    `For each beer, provide:\n` +
+    `- beer_name: the canonical/official beer name\n` +
+    `- brewery: brewery name\n` +
+    `- style: beer style (e.g. "IPA", "Sour - Fruited", "Stout - Imperial")\n` +
+    `- abv: ABV percentage as number (e.g. 5.0, 8.5)\n` +
+    `- rating_score: estimated rating from 1.0 to 5.0 based on your knowledge of the beer's reputation\n` +
+    `- rating_count: estimated number of ratings (use null if unknown)\n` +
+    `- description: brief description of the beer (1-2 sentences)\n\n` +
+    `Return a JSON array with one object per beer in the same order as the input list.\n` +
+    `Format: [{"beer_name":"","brewery":"","style":"","abv":null,"rating_score":null,"rating_count":null,"description":""}]\n` +
+    `Use null for truly unknown fields. Output ONLY valid JSON array, no markdown or explanation.`;
+
+  const fallbackResults = names.map((n) => normalize({}, n));
+
+  const responsePromise = withRetry(() =>
     ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
-      config: { tools: [{ googleSearch: {} }] },
     })
   );
+
+  const response = await withTimeout(responsePromise, 15000, null);
+  if (!response) {
+    console.warn('[GetPopular] Gemini fallback timed out');
+    return fallbackResults;
+  }
+
   const text = response.text ?? '';
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return normalize({}, name);
-  
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return fallbackResults;
+
   try {
-    const parsed = JSON.parse(match[0]) as GeminiResult;
-    const result = normalize(parsed, name);
-    
-    // If rating is still null and this wasn't a retry, try once more with focused prompt
-    if (result.rating_score === null && !isRetryAttempt) {
-      console.log(`[GetPopular] Rating missing for "${name}", retrying with focused prompt...`);
-      return callSingle(name, true);
-    }
-    
-    return result;
+    const parsed = JSON.parse(jsonMatch[0]) as GeminiResult[];
+    return names.map((name, i) => {
+      const result = parsed[i];
+      return result ? normalize(result, name) : normalize({}, name);
+    });
   } catch {
-    return normalize({}, name);
+    return fallbackResults;
   }
 };
 
-const callBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
-  // Process in parallel chunks of 4 for better speed while avoiding rate limits
-  const CONCURRENCY = 4;
-  const results: NormalizedBeer[] = [];
+// Main fetch function: Untappd first, Gemini fallback
+const fetchPopularBeers = async (names: string[]): Promise<NormalizedBeer[]> => {
+  if (names.length === 0) return [];
 
-  for (let i = 0; i < names.length; i += CONCURRENCY) {
-    const chunk = names.slice(i, i + CONCURRENCY);
-    const chunkResults = await Promise.all(chunk.map((name) => callSingle(name)));
-    results.push(...chunkResults);
+  // Step 1: Try Untappd scraping first (real data source)
+  console.log(`[GetPopular] Scraping Untappd for ${names.length} beers...`);
+  const untappdResults = await scrapeUntappdBeers(names, 3);
+
+  const results: NormalizedBeer[] = [];
+  const unfoundNames: string[] = [];
+
+  for (const name of names) {
+    const untappdData = untappdResults.get(name.toLowerCase());
+    if (untappdData && untappdData.brewery !== 'Unknown') {
+      results.push({
+        query: name,
+        beer_name: untappdData.beer_name,
+        brewery: untappdData.brewery,
+        style: untappdData.style,
+        abv: untappdData.abv,
+        rating_score: untappdData.rating_score,
+        rating_count: untappdData.rating_count,
+        description: untappdData.description,
+      });
+    } else {
+      unfoundNames.push(name);
+      results.push(normalize({}, name)); // Placeholder
+    }
+  }
+
+  console.log(`[GetPopular] Untappd found ${names.length - unfoundNames.length}/${names.length} beers`);
+
+  // Step 2: For beers not found on Untappd, use Gemini as fallback
+  if (unfoundNames.length > 0 && process.env.GEMINI_API_KEY) {
+    console.log(`[GetPopular] Using Gemini fallback for ${unfoundNames.length} beers...`);
+    const geminiResults = await callGeminiFallback(unfoundNames);
+
+    const geminiMap = new Map(geminiResults.map((b) => [b.query.toLowerCase(), b]));
+    for (let i = 0; i < results.length; i++) {
+      const key = results[i].query.toLowerCase();
+      const geminiResult = geminiMap.get(key);
+      if (geminiResult && results[i].brewery === 'Unknown') {
+        results[i] = geminiResult;
+      }
+    }
   }
 
   return results;
@@ -140,10 +183,8 @@ export class GetPopularBeersUseCase {
       return { results };
     }
 
-    // 3. Gemini — single batch call with googleSearch grounding
-    if (!process.env.GEMINI_API_KEY) throw new AppError(503, 'GEMINI_API_KEY is not configured');
-
-    const results = await callBatch(POPULAR_NAMES);
+    // 3. Fetch from Untappd (with Gemini fallback)
+    const results = await fetchPopularBeers(POPULAR_NAMES);
 
     await Promise.all(results.map((b) => beersDb.upsertBeer(b)));
     cacheSet('popular_beers', results, 86400);

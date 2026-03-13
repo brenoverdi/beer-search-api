@@ -5,6 +5,7 @@ import { AppError } from '../../../middlewares/error.middleware';
 import * as beersDb from '../../../services/db/beers/beers.db';
 import { cacheGet, cacheSet } from '../../../services/cache/cache';
 import { NormalizedBeer, GeminiResult, SearchResponse, SearchSource } from '../beers.model';
+import { scrapeUntappdBeers } from '../../../services/scraper/untappd-scraper';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
 
@@ -49,11 +50,10 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => (
   description: g.description ?? null,
 });
 
-const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
-  if (!process.env.GEMINI_API_KEY) throw new AppError(503, 'GEMINI_API_KEY is not configured');
+// Gemini fallback for beers not found on Untappd
+const callGeminiFallback = async (names: string[]): Promise<NormalizedBeer[]> => {
   if (names.length === 0) return [];
 
-  // Batch all beers in a single Gemini call for much faster response
   const beerListStr = names.map((n, i) => `${i + 1}. "${n}"`).join('\n');
   const prompt =
     `You are a beer expert with comprehensive knowledge of craft beers, breweries, and beer ratings.\n\n` +
@@ -81,7 +81,7 @@ const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
 
   const response = await withTimeout(responsePromise, 15000, null);
   if (!response) {
-    console.warn('[Search] Gemini batch call timed out, returning fallback');
+    console.warn('[Search] Gemini fallback timed out');
     return fallbackResults;
   }
 
@@ -91,7 +91,6 @@ const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
 
   try {
     const parsed = JSON.parse(jsonMatch[0]) as GeminiResult[];
-    // Map results back to original names in order
     return names.map((name, i) => {
       const result = parsed[i];
       return result ? normalize(result, name) : normalize({}, name);
@@ -99,6 +98,57 @@ const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
   } catch {
     return fallbackResults;
   }
+};
+
+// Main batch function: Untappd first, Gemini fallback
+const fetchBeerDetails = async (names: string[]): Promise<NormalizedBeer[]> => {
+  if (names.length === 0) return [];
+
+  // Step 1: Try Untappd scraping first (real data source)
+  console.log(`[Search] Scraping Untappd for ${names.length} beers...`);
+  const untappdResults = await scrapeUntappdBeers(names, 3);
+
+  const results: NormalizedBeer[] = [];
+  const unfoundNames: string[] = [];
+
+  for (const name of names) {
+    const untappdData = untappdResults.get(name.toLowerCase());
+    if (untappdData && untappdData.brewery !== 'Unknown') {
+      results.push({
+        query: name,
+        beer_name: untappdData.beer_name,
+        brewery: untappdData.brewery,
+        style: untappdData.style,
+        abv: untappdData.abv,
+        rating_score: untappdData.rating_score,
+        rating_count: untappdData.rating_count,
+        description: untappdData.description,
+      });
+    } else {
+      unfoundNames.push(name);
+      results.push(normalize({}, name)); // Placeholder
+    }
+  }
+
+  console.log(`[Search] Untappd found ${names.length - unfoundNames.length}/${names.length} beers`);
+
+  // Step 2: For beers not found on Untappd, use Gemini as fallback
+  if (unfoundNames.length > 0 && process.env.GEMINI_API_KEY) {
+    console.log(`[Search] Using Gemini fallback for ${unfoundNames.length} beers...`);
+    const geminiResults = await callGeminiFallback(unfoundNames);
+
+    // Merge Gemini results back into results array
+    const geminiMap = new Map(geminiResults.map((b) => [b.query.toLowerCase(), b]));
+    for (let i = 0; i < results.length; i++) {
+      const key = results[i].query.toLowerCase();
+      const geminiResult = geminiMap.get(key);
+      if (geminiResult && results[i].brewery === 'Unknown') {
+        results[i] = geminiResult;
+      }
+    }
+  }
+
+  return results;
 };
 
 const extractNamesFromImage = async (base64Data: string, mimeType: string): Promise<string[]> => {
@@ -170,7 +220,7 @@ export class SearchBeersUseCase {
 
     let fresh: NormalizedBeer[] = [];
     if (uncachedNames.length > 0) {
-      fresh = await callGeminiBatch(uncachedNames);
+      fresh = await fetchBeerDetails(uncachedNames);
       await Promise.all(fresh.map((b) => beersDb.upsertBeer(b)));
       fresh.forEach((b) => cacheSet(`beer:${b.query.toLowerCase()}`, b, 3600));
     }
