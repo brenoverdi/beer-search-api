@@ -15,12 +15,20 @@ datasource db {
 // ─── Users ─────────────────────────────────────────────────────────────────
 
 model User {
-  id            Int      @id @default(autoincrement())
-  username      String   @unique @db.VarChar(50)
-  email         String   @unique @db.VarChar(255)
-  password      String?  @db.VarChar(255)
-  googleId      String?  @unique @map("google_id") @db.VarChar(255)
-  emailVerified Boolean  @default(false) @map("email_verified")
+  id            Int       @id @default(autoincrement())
+  username      String    @unique @db.VarChar(50)
+  email         String    @unique @db.VarChar(255)
+  password      String?   @db.VarChar(255)
+  googleId      String?   @unique @map("google_id") @db.VarChar(255)
+  emailVerified Boolean   @default(false) @map("email_verified")
+  
+  // Profile fields
+  dateOfBirth    DateTime? @map("date_of_birth") @db.Date
+  gender         String?   @db.VarChar(20) // male, female, other, prefer-not-to-say
+  country        String?   @db.VarChar(100)
+  bio            String?   @db.Text
+  favoriteStyles String[]  @default([]) @map("favorite_styles")
+  
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -29,6 +37,7 @@ model User {
   searchHistory      SearchHistory[]
   emailVerifications EmailVerification[]
   refreshTokens      RefreshToken[]
+  itineraries        UserItinerary[]
 
   @@map("users")
 }
@@ -164,4 +173,56 @@ model BeerTag {
 
   @@id([beerId, tagId])
   @@map("beer_tags")
+}
+
+// ─── Festivals ─────────────────────────────────────────────────────────────
+
+model Festival {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(200)
+  city        String   @db.VarChar(100)
+  country     String   @db.VarChar(100)
+  continent   String   @db.VarChar(50)
+  startDate   DateTime @map("start_date") @db.Date
+  endDate     DateTime @map("end_date") @db.Date
+  description String?  @db.Text
+  website     String?  @db.VarChar(500)
+  imageUrl    String?  @map("image_url") @db.VarChar(500)
+  latitude    Float?
+  longitude   Float?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  itineraries UserItinerary[]
+
+  @@map("festivals")
+}
+
+model UserItinerary {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  festivalId    Int      @map("festival_id")
+  arrivalDate   DateTime @map("arrival_date") @db.Date
+  departureDate DateTime @map("departure_date") @db.Date
+  generatedPlan Json     @map("generated_plan")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  festival Festival @relation(fields: [festivalId], references: [id], onDelete: Cascade)
+
+  @@map("user_itineraries")
+}
+
+// ─── Beer of the Day ───────────────────────────────────────────────────────
+
+model BeerOfTheDay {
+  id        Int      @id @default(autoincrement())
+  date      DateTime @unique @db.Date
+  beerName  String   @map("beer_name") @db.VarChar(200)
+  beerData  Json     @map("beer_data")
+  funFact   String?  @map("fun_fact") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("beer_of_the_day")
 }

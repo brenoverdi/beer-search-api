@@ -4,6 +4,7 @@ import { AppError } from '../../../middlewares/error.middleware';
 import * as beersDb from '../../../services/db/beers/beers.db';
 import { cacheGet, cacheSet } from '../../../services/cache/cache';
 import { NormalizedBeer, GeminiResult, SearchSource } from '../beers.model';
+import { scrapePageContent } from '../../../services/scraper/url-scraper';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
 
@@ -44,33 +45,39 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => (
   description: g.description ?? null,
 });
 
-// ── Extract beer names from URL ───────────────────────────────────────────────
+// ── Extract beer names from scraped content ───────────────────────────────────
 
-const extractNamesFromUrl = async (url: string): Promise<string[]> => {
+const extractNamesFromContent = async (pageContent: string, pageTitle: string): Promise<string[]> => {
   if (!process.env.GEMINI_API_KEY) throw new AppError(503, 'GEMINI_API_KEY is not configured');
 
+  // Truncate content if too long (keep it under token limits)
+  const truncatedContent = pageContent.length > 30000 
+    ? pageContent.substring(0, 30000) + '...' 
+    : pageContent;
+
   const prompt =
-    `Visit and analyze the content of this URL: ${url}\n\n` +
-    `This is likely a bar menu, tap list, beer list, or similar page.\n\n` +
-    `Extract ALL beer names mentioned on the page. Look for:\n` +
-    `- Tap lists or draft menus\n` +
-    `- Bottle/can lists\n` +
-    `- Beer menus with names like "IPA", "Stout", "Lager", etc.\n` +
-    `- Names that include brewery + beer name format\n\n` +
+    `Analyze this text content from a beer-related webpage titled "${pageTitle}":\n\n` +
+    `---PAGE CONTENT START---\n${truncatedContent}\n---PAGE CONTENT END---\n\n` +
+    `This is likely a bar menu, tap list, beer list, beer store catalog, or brewery page.\n\n` +
+    `Extract ALL specific beer names mentioned. Look for:\n` +
+    `- Named beers like "Pliny the Elder", "Heady Topper", "Founders KBS"\n` +
+    `- Brewery + beer name combinations like "Sierra Nevada Pale Ale"\n` +
+    `- Craft beer names with descriptive titles\n` +
+    `- Beer names in different languages (Italian, Portuguese, German, etc.)\n\n` +
     `IGNORE:\n` +
-    `- Volume indicators (330ml, 473ml, etc.)\n` +
-    `- Prices\n` +
-    `- Generic categories (just "IPA" alone without a specific beer name)\n` +
-    `- Navigation menu items, headers, footers\n\n` +
-    `Return ONLY a JSON array of beer name strings, maximum 50 beers.\n` +
-    `Example: ["Pliny the Elder", "Heady Topper", "Bell's Two Hearted"]\n` +
-    `If no beers found, return []. Output ONLY valid JSON, no markdown.`;
+    `- Volume sizes (330ml, 473ml, pints, etc.)\n` +
+    `- Prices and currencies\n` +
+    `- Generic style categories alone (just "IPA" or "Stout" without a specific beer name)\n` +
+    `- Navigation menu items, website headers, footers\n` +
+    `- Descriptions and promotional text\n\n` +
+    `Return ONLY a valid JSON array of beer name strings, maximum 50 beers.\n` +
+    `Example: ["Pliny the Elder", "Heady Topper", "Bell's Two Hearted Ale"]\n` +
+    `If no specific beers found, return []. Output ONLY valid JSON, no markdown or explanation.`;
 
   const response = await withRetry(() =>
     ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
-      config: { tools: [{ googleSearch: {} }] },
     })
   );
 
@@ -81,7 +88,8 @@ const extractNamesFromUrl = async (url: string): Promise<string[]> => {
   try {
     const names = JSON.parse(match[0]) as unknown[];
     return names
-      .filter((n): n is string => typeof n === 'string' && n.trim().length > 0)
+      .filter((n): n is string => typeof n === 'string' && n.trim().length > 2)
+      .map((n) => n.trim())
       .slice(0, 50);
   } catch {
     return [];
@@ -161,7 +169,20 @@ export class SearchBeersFromUrlUseCase {
       throw new AppError(400, 'Invalid URL format');
     }
 
-    const names = await extractNamesFromUrl(url);
+    // Step 1: Scrape the page content
+    console.log(`[URLSearch] Scraping URL: ${url}`);
+    const scrapeResult = await scrapePageContent(url);
+    
+    if (!scrapeResult.success) {
+      throw new AppError(422, scrapeResult.error || 'Could not extract content from the page');
+    }
+
+    console.log(`[URLSearch] Scraped ${scrapeResult.content.length} chars from "${scrapeResult.title}"`);
+
+    // Step 2: Extract beer names from the scraped content using Gemini
+    const names = await extractNamesFromContent(scrapeResult.content, scrapeResult.title);
+
+    console.log(`[URLSearch] Extracted ${names.length} beer names`);
 
     if (names.length === 0) {
       return { source: 'url', url, beerNames: [], results: [] };

@@ -1,4 +1,5 @@
 import prisma from '../../prisma/index';
+import { User } from '@prisma/client';
 
 // ── EmailVerification ────────────────────────────────────────────────────────
 
@@ -38,13 +39,13 @@ export const revokeAllUserRefreshTokens = async (userId: number) =>
 
 // ── User helpers used in auth flows ──────────────────────────────────────────
 
-export const findUserById = async (id: number) =>
+export const findUserById = async (id: number): Promise<User | null> =>
   prisma.user.findUnique({ where: { id } });
 
-export const findUserByEmail = async (email: string) =>
+export const findUserByEmail = async (email: string): Promise<User | null> =>
   prisma.user.findUnique({ where: { email } });
 
-export const findUserByGoogleId = async (googleId: string) =>
+export const findUserByGoogleId = async (googleId: string): Promise<User | null> =>
   prisma.user.findUnique({ where: { googleId } });
 
 export const createUser = async (data: {
@@ -53,10 +54,15 @@ export const createUser = async (data: {
   password?: string | null;
   googleId?: string | null;
   emailVerified?: boolean;
-}) => prisma.user.create({ data });
+  dateOfBirth?: Date | null;
+  gender?: string | null;
+  country?: string | null;
+  bio?: string | null;
+  favoriteStyles?: string[];
+}): Promise<User> => prisma.user.create({ data });
 
-export const setEmailVerified = async (userId: number) =>
+export const setEmailVerified = async (userId: number): Promise<User> =>
   prisma.user.update({ where: { id: userId }, data: { emailVerified: true } });
 
-export const updateUserGoogleId = async (userId: number, googleId: string) =>
+export const updateUserGoogleId = async (userId: number, googleId: string): Promise<User> =>
   prisma.user.update({ where: { id: userId }, data: { googleId } });

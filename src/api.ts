@@ -15,6 +15,9 @@ import authRouter from './modules/auth/auth.route';
 import beersRouter from './modules/beers/beers.route';
 import usersRouter from './modules/users/users.route';
 import listsRouter from './modules/lists/lists.route';
+import festivalsRouter from './modules/festivals/festivals.route';
+import beerOfTheDayRouter from './modules/beer-of-the-day/beer-of-the-day.route';
+import breweriesRouter from './modules/breweries/breweries.route';
 
 const api = express();
 
@@ -61,6 +64,9 @@ api.use(base, authRouter);
 api.use(base, beersRouter);
 api.use(base, usersRouter);
 api.use(base, listsRouter);
+api.use(`${base}/festivals`, festivalsRouter);
+api.use(`${base}/beer-of-the-day`, beerOfTheDayRouter);
+api.use(`${base}/breweries`, breweriesRouter);
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 api.use((_req: Request, res: Response) => {

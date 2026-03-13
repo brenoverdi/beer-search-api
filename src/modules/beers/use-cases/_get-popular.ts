@@ -32,30 +32,47 @@ const withRetry = async <T>(fn: () => Promise<T>, retries = 3, delayMs = 1000): 
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
 
-const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => ({
-  query,
-  beer_name: g.beer_name ?? query,
-  brewery: g.brewery ?? 'Unknown',
-  style: g.style ?? 'Unknown',
-  abv: g.abv ?? null,
-  rating_score: g.rating_score ?? null,
-  rating_count: g.rating_count ?? null,
-  description: g.description ?? null,
-});
+const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => {
+  // Validate rating_score is between 0-5
+  let ratingScore = g.rating_score ?? null;
+  if (ratingScore !== null && (ratingScore < 0 || ratingScore > 5)) {
+    ratingScore = null;
+  }
+  
+  return {
+    query,
+    beer_name: g.beer_name ?? query,
+    brewery: g.brewery ?? 'Unknown',
+    style: g.style ?? 'Unknown',
+    abv: g.abv ?? null,
+    rating_score: ratingScore,
+    rating_count: g.rating_count ?? null,
+    description: g.description ?? null,
+  };
+};
 
-const callSingle = async (name: string): Promise<NormalizedBeer> => {
-  const prompt =
-    `Search Google for: ${name} beer untappd rating ABV\n\n` +
-    `Find the Untappd page for this beer and extract:\n` +
-    `- beer_name: exact beer name\n` +
-    `- brewery: brewery name\n` +
-    `- style: beer style (e.g. "IPA", "Stout", "Sour Ale")\n` +
-    `- abv: ABV as number (e.g. 5.0)\n` +
-    `- rating_score: Untappd rating (e.g. 3.86)\n` +
-    `- rating_count: number of ratings\n` +
-    `- description: 1-2 sentence description\n\n` +
-    `Return JSON: {"beer_name":"","brewery":"","style":"","abv":null,"rating_score":null,"rating_count":null,"description":""}\n` +
-    `Use null for any field not found. Output ONLY JSON, no markdown.`;
+const callSingle = async (name: string, isRetryAttempt = false): Promise<NormalizedBeer> => {
+  // Enhanced prompt for better rating extraction
+  const prompt = isRetryAttempt
+    ? `I need the Untappd rating for the beer "${name}". ` +
+      `Search for this beer on Untappd.com. The rating is usually displayed as a decimal number between 1.0 and 5.0 (like 4.21 or 3.86). ` +
+      `The number of check-ins/ratings is shown in parentheses like "(15,234)". ` +
+      `Return ONLY this JSON: {"beer_name":"${name}","brewery":"","style":"","abv":null,"rating_score":null,"rating_count":null,"description":""} ` +
+      `Fill in what you find. rating_score MUST be a decimal like 4.21. Output ONLY valid JSON.`
+    : `Search for "${name}" on Untappd.com to find the beer's rating and details.\n\n` +
+      `IMPORTANT: On Untappd, the rating appears as a decimal number between 1.0 and 5.0, displayed prominently near the beer name. ` +
+      `It looks like "4.21" followed by the rating count in parentheses like "(15,234 Ratings)".\n\n` +
+      `Extract from the Untappd page:\n` +
+      `- beer_name: exact beer name as shown on Untappd\n` +
+      `- brewery: brewery name\n` +
+      `- style: beer style (e.g. "Imperial IPA", "Quadrupel", "Imperial Stout")\n` +
+      `- abv: ABV percentage as number (e.g. 10.2, 8.0)\n` +
+      `- rating_score: the Untappd rating as a decimal between 1.0 and 5.0 (e.g. 4.21, 3.86)\n` +
+      `- rating_count: total number of check-ins/ratings as integer (e.g. 15234)\n` +
+      `- description: brewery's description of the beer (1-2 sentences)\n\n` +
+      `Return JSON: {"beer_name":"","brewery":"","style":"","abv":null,"rating_score":null,"rating_count":null,"description":""}\n` +
+      `CRITICAL: rating_score must be a decimal number like 4.21, NOT null if you can find it on Untappd.\n` +
+      `Output ONLY valid JSON, no markdown or explanation.`;
 
   const response = await withRetry(() =>
     ai.models.generateContent({
@@ -67,8 +84,18 @@ const callSingle = async (name: string): Promise<NormalizedBeer> => {
   const text = response.text ?? '';
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return normalize({}, name);
+  
   try {
-    return normalize(JSON.parse(match[0]) as GeminiResult, name);
+    const parsed = JSON.parse(match[0]) as GeminiResult;
+    const result = normalize(parsed, name);
+    
+    // If rating is still null and this wasn't a retry, try once more with focused prompt
+    if (result.rating_score === null && !isRetryAttempt) {
+      console.log(`[GetPopular] Rating missing for "${name}", retrying with focused prompt...`);
+      return callSingle(name, true);
+    }
+    
+    return result;
   } catch {
     return normalize({}, name);
   }
