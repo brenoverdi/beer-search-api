@@ -1,5 +1,6 @@
 import { injectable } from 'tsyringe';
 import { GoogleGenAI } from '@google/genai';
+import { Prisma } from '@prisma/client';
 import { AppError } from '../../../middlewares/error.middleware';
 import * as festivalsDb from '../../../services/db/festivals/festivals.db';
 import * as authDb from '../../../services/db/auth/auth.db';
@@ -180,7 +181,7 @@ export class CreateItineraryUseCase {
       festivalId,
       arrivalDate,
       departureDate,
-      generatedPlan,
+      generatedPlan: generatedPlan as unknown as Prisma.InputJsonValue,
     });
 
     return {
@@ -203,7 +204,7 @@ export class CreateItineraryUseCase {
         },
         arrivalDate: itinerary.arrivalDate.toISOString(),
         departureDate: itinerary.departureDate.toISOString(),
-        generatedPlan: itinerary.generatedPlan as GeneratedItinerary,
+        generatedPlan: itinerary.generatedPlan as unknown as GeneratedItinerary,
         createdAt: itinerary.createdAt.toISOString(),
       },
     };

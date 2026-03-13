@@ -78,6 +78,7 @@ export interface GeneratedItinerary {
     description: string;
   }[];
   tips: string[];
+  [key: string]: unknown; // Index signature for Prisma JSON compatibility
 }
 
 export interface ItineraryResponse {

@@ -1,5 +1,5 @@
 import { injectable } from "tsyringe"
-import prismaClient from "../../../utils/prisma-client/prisma-client"
+import prismaClient from "../../prisma/index"
 
 @injectable()
 export class BeerOfTheDayDbService {
