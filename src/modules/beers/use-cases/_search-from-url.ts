@@ -34,6 +34,12 @@ const withRetry = async <T>(fn: () => Promise<T>, retries = 3, delayMs = 1000): 
   }
 };
 
+const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
+  Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+
 const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => ({
   query,
   beer_name: g.beer_name ?? query,
@@ -98,51 +104,55 @@ const extractNamesFromContent = async (pageContent: string, pageTitle: string): 
 
 // ── Get beer details ──────────────────────────────────────────────────────────
 
-const callGeminiSingle = async (name: string): Promise<NormalizedBeer> => {
+const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
+  if (names.length === 0) return [];
+
+  // Batch all beers in a single Gemini call for much faster response
+  const beerListStr = names.map((n, i) => `${i + 1}. "${n}"`).join('\n');
   const prompt =
-    `Search for "${name}" on Untappd.com to find the beer's rating and details.\n\n` +
-    `IMPORTANT: On Untappd, ratings appear as a decimal number (e.g., "4.21") near the beer name, often followed by the count in parentheses like "(15,234)".\n\n` +
-    `Extract from the Untappd page:\n` +
-    `- beer_name: exact beer name as shown on Untappd\n` +
+    `You are a beer expert with comprehensive knowledge of craft beers, breweries, and beer ratings.\n\n` +
+    `For each of the following beers, provide details based on your knowledge:\n${beerListStr}\n\n` +
+    `For each beer, provide:\n` +
+    `- beer_name: the canonical/official beer name\n` +
     `- brewery: brewery name\n` +
     `- style: beer style (e.g. "IPA", "Sour - Fruited", "Stout - Imperial")\n` +
     `- abv: ABV percentage as number (e.g. 5.0, 8.5)\n` +
-    `- rating_score: the Untappd rating as decimal (e.g. 3.86, 4.21)\n` +
-    `- rating_count: total number of check-ins/ratings (numeric, e.g. 15234)\n` +
-    `- description: brewery's description of the beer (1-2 sentences)\n\n` +
-    `Return JSON: {"beer_name":"","brewery":"","style":"","abv":null,"rating_score":null,"rating_count":null,"description":""}\n` +
-    `Use null ONLY if the field truly cannot be found. Output ONLY valid JSON, no markdown or explanation.`;
+    `- rating_score: estimated rating from 1.0 to 5.0 based on your knowledge of the beer's reputation\n` +
+    `- rating_count: estimated number of ratings (use null if unknown)\n` +
+    `- description: brief description of the beer (1-2 sentences)\n\n` +
+    `Return a JSON array with one object per beer in the same order as the input list.\n` +
+    `Format: [{"beer_name":"","brewery":"","style":"","abv":null,"rating_score":null,"rating_count":null,"description":""}]\n` +
+    `Use null for truly unknown fields. Output ONLY valid JSON array, no markdown or explanation.`;
 
-  const response = await withRetry(() =>
+  const fallbackResults = names.map((n) => normalize({}, n));
+
+  const responsePromise = withRetry(() =>
     ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
-      config: { tools: [{ googleSearch: {} }] },
     })
   );
+
+  const response = await withTimeout(responsePromise, 15000, null);
+  if (!response) {
+    console.warn('[URLSearch] Gemini batch call timed out, returning fallback');
+    return fallbackResults;
+  }
+
   const text = response.text ?? '';
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return normalize({}, name);
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return fallbackResults;
 
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as GeminiResult;
-    return normalize(parsed, name);
+    const parsed = JSON.parse(jsonMatch[0]) as GeminiResult[];
+    // Map results back to original names in order
+    return names.map((name, i) => {
+      const result = parsed[i];
+      return result ? normalize(result, name) : normalize({}, name);
+    });
   } catch {
-    return normalize({}, name);
+    return fallbackResults;
   }
-};
-
-const callGeminiBatch = async (names: string[]): Promise<NormalizedBeer[]> => {
-  const CONCURRENCY = 4;
-  const results: NormalizedBeer[] = [];
-
-  for (let i = 0; i < names.length; i += CONCURRENCY) {
-    const chunk = names.slice(i, i + CONCURRENCY);
-    const chunkResults = await Promise.all(chunk.map((name) => callGeminiSingle(name)));
-    results.push(...chunkResults);
-  }
-
-  return results;
 };
 
 // ── Response type ─────────────────────────────────────────────────────────────
