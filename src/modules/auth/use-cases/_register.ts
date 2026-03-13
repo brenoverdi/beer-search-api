@@ -70,7 +70,7 @@ export class RegisterUseCase {
       },
       accessToken,
       refreshToken,
-      message: 'Registration successful. Welcome to BrewScout!',
+      message: 'Registration successful. Welcome to CraftScout!',
     };
   }
 }

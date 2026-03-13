@@ -11,7 +11,12 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "test": "jest",
+    "seed:festivals": "tsx src/scripts/seed-festivals.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:health": "vitest run --config vitest.integration.config.mts -t \"health check\"",
+    "test:coverage": "vitest run --coverage",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix"
   },
@@ -58,11 +63,13 @@
     "@types/morgan": "^1.9.10",
     "@types/multer": "^2.1.0",
     "@types/node": "^25.4.0",
+    "@vitest/coverage-v8": "^4.1.0",
     "eslint": "^9.39.4",
     "nodemon": "^3.0.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.57.0"
+    "typescript-eslint": "^8.57.0",
+    "vitest": "^4.1.0"
   },
   "engines": {
     "node": ">=18.0.0"
