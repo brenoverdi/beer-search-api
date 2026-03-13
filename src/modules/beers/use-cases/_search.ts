@@ -174,7 +174,7 @@ const extractNamesFromImage = async (base64Data: string, mimeType: string): Prom
       role: 'user',
       parts: [
         { inlineData: { data: base64Data, mimeType } },
-        { text: 'List every beer name visible in this image. Extract ONLY the beer name itself - do NOT include style descriptors like "IPA", "Stout", "Lager" as suffixes. IGNORE volume indicators like "44CL", "473ML", "330ML". CORRECT: "Guinness Draught", "Pliny the Elder". WRONG: "Guinness Draught - Stout", "Pliny the Elder - IPA". Return ONLY a JSON array of strings. No markdown. If no beers found, return [].' },
+        { text: 'List every beer name visible in this image. For EACH beer visible, extract brewery name AND beer name if both are visible. Format: "Brewery BeerName" (e.g., "Russian River Pliny the Elder", "Sierra Nevada Pale Ale"). If only beer name is visible, return just the beer name (e.g., "Guinness Draught"). Extract ONLY "Brewery BeerName" - do NOT include style descriptors like "IPA", "Stout", "Lager" as suffixes. IGNORE volume indicators like "44CL", "473ML", "330ML". CORRECT: "Russian River Pliny the Elder", "Guinness Draught", "Bell\'s Two Hearted Ale". WRONG: "Pliny the Elder - IPA", "Guinness Draught - Stout". Return ONLY a JSON array of strings in "Brewery BeerName" format. No markdown. If no beers found, return [].' },
       ],
     }],
   });

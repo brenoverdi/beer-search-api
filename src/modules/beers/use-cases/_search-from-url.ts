@@ -80,23 +80,26 @@ const extractNamesFromContent = async (pageContent: string, pageTitle: string): 
     `Analyze this text content from a beer-related webpage titled "${pageTitle}":\n\n` +
     `---PAGE CONTENT START---\n${truncatedContent}\n---PAGE CONTENT END---\n\n` +
     `This is likely a bar menu, tap list, beer list, beer store catalog, or brewery page.\n\n` +
-    `Extract ALL specific beer names mentioned. Look for:\n` +
-    `- Named beers like "Pliny the Elder", "Heady Topper", "Founders KBS"\n` +
-    `- Brewery + beer name combinations like "Sierra Nevada Pale Ale"\n` +
+    `Extract ALL specific beer names mentioned. For EACH beer, include the brewery name if visible.\n` +
+    `Format: "Brewery BeerName" (e.g., "Russian River Pliny the Elder", "Sierra Nevada Pale Ale")\n` +
+    `If brewery is not visible, use just the beer name (e.g., "Heady Topper", "Founders KBS")\n\n` +
+    `Look for:\n` +
+    `- Named beers with breweries: "Russian River Pliny the Elder", "Bell's Two Hearted Ale"\n` +
+    `- Brewery + beer name combinations: "Sierra Nevada Pale Ale", "Dogfish Head 60 Minute IPA"\n` +
     `- Craft beer names with descriptive titles\n` +
     `- Beer names in different languages (Italian, Portuguese, German, etc.)\n\n` +
-    `IMPORTANT: Extract ONLY the beer name itself, WITHOUT any style descriptors.\n` +
-    `CORRECT: "Guinness Draught", "Pliny the Elder", "Sierra Nevada Pale Ale"\n` +
+    `IMPORTANT: Extract ONLY "Brewery BeerName", WITHOUT any style descriptors.\n` +
+    `CORRECT: "Guinness Draught", "Russian River Pliny the Elder", "Sierra Nevada Pale Ale"\n` +
     `WRONG: "Guinness Draught - Stout", "Pliny the Elder - IPA", "Sierra Nevada Pale Ale - American Pale Ale"\n\n` +
     `IGNORE:\n` +
     `- Volume sizes (330ml, 473ml, pints, etc.)\n` +
     `- Prices and currencies\n` +
-    `- Style suffixes or descriptors (IPA, Stout, Lager, etc. should not be appended to beer names)\n` +
+    `- Style suffixes or descriptors (IPA, Stout, Lager, etc. should not be appended)\n` +
     `- Generic style categories alone (just "IPA" or "Stout" without a specific beer name)\n` +
     `- Navigation menu items, website headers, footers\n` +
     `- Descriptions and promotional text\n\n` +
-    `Return ONLY a valid JSON array of beer name strings, maximum 50 beers.\n` +
-    `Example: ["Pliny the Elder", "Heady Topper", "Bell's Two Hearted Ale"]\n` +
+    `Return ONLY a valid JSON array of strings in "Brewery BeerName" format, maximum 50 beers.\n` +
+    `Example: ["Russian River Pliny the Elder", "Heady Topper", "Bell's Two Hearted Ale"]\n` +
     `If no specific beers found, return []. Output ONLY valid JSON, no markdown or explanation.`;
 
   const response = await withRetry(() =>
