@@ -31,6 +31,7 @@ interface ScrapeAttemptResult {
 export async function scrapeUntappdBeer(beerName: string): Promise<ScrapeAttemptResult> {
   try {
     const searchUrl = `https://untappd.com/search?q=${encodeURIComponent(beerName)}`;
+    console.log(`[Untappd] Searching: ${searchUrl}`);
     
     const response = await axios.get(searchUrl, {
       timeout: 10000,
@@ -48,6 +49,7 @@ export async function scrapeUntappdBeer(beerName: string): Promise<ScrapeAttempt
     const firstResult = $('.beer-item').first();
     
     if (firstResult.length === 0) {
+      console.log(`[Untappd] No .beer-item found for "${beerName}"`);
       return { success: false, error: 'No results found' };
     }
 
@@ -63,29 +65,68 @@ export async function scrapeUntappdBeer(beerName: string): Promise<ScrapeAttempt
     const styleEl = firstResult.find('.style').first();
     const style = styleEl.text().trim() || 'Unknown';
 
-    // ABV - look for percentage pattern in the item
-    const itemText = firstResult.text();
-    const abvMatch = itemText.match(/(\d+\.?\d*)\s*%\s*ABV/i);
-    const abv = abvMatch ? parseFloat(abvMatch[1]) : null;
+    // ABV - look for .abv element first, then pattern in text
+    let abv: number | null = null;
+    const abvEl = firstResult.find('.abv').first();
+    if (abvEl.length) {
+      const abvText = abvEl.text().trim();
+      const abvMatch = abvText.match(/(\d+\.?\d*)\s*%/i);
+      if (abvMatch) {
+        abv = parseFloat(abvMatch[1]);
+      }
+    } else {
+      // Fallback to searching in full text
+      const itemText = firstResult.text();
+      const abvMatch = itemText.match(/(\d+\.?\d*)\s*%\s*ABV/i);
+      if (abvMatch) {
+        abv = parseFloat(abvMatch[1]);
+      }
+    }
 
-    // Rating score - usually in .caps or .num element, or data-rating attribute
+    // Rating score - check multiple sources
     let rating_score: number | null = null;
+    
+    // 1. Try .caps[data-rating] attribute (most reliable)
     const capsEl = firstResult.find('.caps').first();
     const ratingDataAttr = capsEl.attr('data-rating');
+    
     if (ratingDataAttr) {
-      rating_score = parseFloat(ratingDataAttr);
-    } else {
+      const parsed = parseFloat(ratingDataAttr);
+      if (!isNaN(parsed) && parsed > 0 && parsed <= 5) {
+        rating_score = Math.round(parsed * 100) / 100; // Round to 2 decimals
+      }
+    }
+    
+    // 2. If not found, try .num element (contains "(4.228)")
+    if (rating_score === null) {
       const numEl = firstResult.find('.num').first();
       const numText = numEl.text().trim();
-      const ratingMatch = numText.match(/(\d+\.?\d*)/);
+      // Match pattern like "(4.228)" or "4.228"
+      const ratingMatch = numText.match(/\(?(\d+[.,]\d+)\)?/);
       if (ratingMatch) {
-        rating_score = parseFloat(ratingMatch[1]);
+        const parsed = parseFloat(ratingMatch[1].replace(',', '.'));
+        if (!isNaN(parsed) && parsed > 0 && parsed <= 5) {
+          rating_score = Math.round(parsed * 100) / 100;
+        }
+      }
+    }
+    
+    // 3. Try .rating .num as fallback
+    if (rating_score === null) {
+      const ratingNumEl = firstResult.find('.rating .num').first();
+      const ratingNumText = ratingNumEl.text().trim();
+      const ratingMatch = ratingNumText.match(/\(?(\d+[.,]\d+)\)?/);
+      if (ratingMatch) {
+        const parsed = parseFloat(ratingMatch[1].replace(',', '.'));
+        if (!isNaN(parsed) && parsed > 0 && parsed <= 5) {
+          rating_score = Math.round(parsed * 100) / 100;
+        }
       }
     }
 
     // Rating count (check-ins/raters)
-    const ratersEl = firstResult.find('.raters').first();
     let rating_count: number | null = null;
+    const ratersEl = firstResult.find('.raters').first();
     if (ratersEl.length) {
       const ratersText = ratersEl.text().replace(/[,.\s]/g, '');
       const countMatch = ratersText.match(/(\d+)/);
@@ -94,9 +135,19 @@ export async function scrapeUntappdBeer(beerName: string): Promise<ScrapeAttempt
       }
     }
 
-    // Description - usually not available on search page, but try
+    // Description - usually not available on search page
     const descEl = firstResult.find('.beer-description, .description').first();
     const description = descEl.text().trim() || null;
+
+    // Log the extraction result
+    console.log(`[Untappd] Scraped "${beerName}":`, {
+      found: extractedName,
+      brewery,
+      style,
+      abv,
+      rating: rating_score,
+      raters: rating_count,
+    });
 
     // Validate we got at least some useful data
     if (brewery === 'Unknown' && style === 'Unknown' && rating_score === null) {
@@ -110,8 +161,8 @@ export async function scrapeUntappdBeer(beerName: string): Promise<ScrapeAttempt
         brewery,
         style,
         abv: abv && !isNaN(abv) ? abv : null,
-        rating_score: rating_score && !isNaN(rating_score) && rating_score <= 5 ? rating_score : null,
-        rating_count: rating_count && !isNaN(rating_count) ? rating_count : null,
+        rating_score,
+        rating_count,
         description,
       },
     };
