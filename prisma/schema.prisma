@@ -51,6 +51,8 @@ model Beer {
   brewery     String   @db.VarChar(200)
   style       String   @db.VarChar(100)
   abv         Float?   @map("abv")
+  ibu         Int?     @map("ibu")
+  checkIns    Int?     @map("check_ins")
   ratingScore Float?   @map("rating_score")
   ratingCount Int?     @map("rating_count")
   description String?  @map("description") @db.Text

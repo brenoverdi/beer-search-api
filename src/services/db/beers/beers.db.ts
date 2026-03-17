@@ -8,6 +8,8 @@ export interface NormalizedBeer {
   brewery: string;
   style: string;
   abv: number | null;
+  ibu: number | null;
+  check_ins: number | null;
   rating_score: number | null;
   rating_count: number | null;
   description: string | null;
@@ -32,6 +34,8 @@ export const upsertBeer = async (beer: NormalizedBeer) => {
       brewery: beer.brewery,
       style: beer.style,
       abv: beer.abv,
+      ibu: beer.ibu,
+      checkIns: beer.check_ins,
       ratingScore: beer.rating_score,
       ratingCount: beer.rating_count,
       description: beer.description,
@@ -40,6 +44,8 @@ export const upsertBeer = async (beer: NormalizedBeer) => {
       brewery: beer.brewery,
       style: beer.style,
       abv: beer.abv,
+      ibu: beer.ibu,
+      checkIns: beer.check_ins,
       ratingScore: beer.rating_score,
       ratingCount: beer.rating_count,
       description: beer.description,

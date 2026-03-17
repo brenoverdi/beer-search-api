@@ -16,6 +16,8 @@ export interface NormalizedBeer {
   brewery: string;
   style: string;
   abv: number | null;
+  ibu: number | null;
+  check_ins: number | null;
   rating_score: number | null;
   rating_count: number | null;
   description: string | null;
