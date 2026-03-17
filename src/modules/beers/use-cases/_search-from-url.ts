@@ -147,10 +147,20 @@ const detectBreweryWebsite = async (url: string, pageContent: string, pageTitle:
     `   - Even if URL contains "store" or "shop", it's still a single brewery if they only sell their own beers\n` +
     `2. OR is this a MULTI-BREWERY retailer (sells beers from many different breweries)?\n` +
     `   - Examples: Total Wine, Drizly, BevMo, craft beer stores carrying multiple brands\n\n` +
-    `IMPORTANT: Identify the actual BREWERY name, not marketing terms or slogans.\n` +
-    `- Look for: "About us", brewery information, who brews these beers, company name\n` +
-    `- Ignore: Marketing nicknames for customers, website taglines, promotional terms\n` +
-    `- Example: If site uses "Batalhão" as customer nickname but beers are made by "Salvador", return "Salvador"\n\n` +
+    `IMPORTANT: Identify the BREWERY name only — not customer community names, not slogans.\n\n` +
+    `Signals to find the brewery name (in priority order):\n` +
+    `1. The URL domain — e.g. "salvadorstore.com.br" strongly suggests the brewery is "Salvador"\n` +
+    `2. Product names — if products say "Cerveja Salvador Speed Pale Ale", the brewery is "Salvador"\n` +
+    `3. "About us" / company information section\n` +
+    `4. Footer copyright notice\n\n` +
+    `Words that indicate a CUSTOMER COMMUNITY nickname (NOT the brewery name):\n` +
+    `- "Batalhão", "Esquadrão", "Tropa" (Portuguese: Battalion, Squadron, Troop)\n` +
+    `- "Squad", "Army", "Crew", "Tribe", "Nation", "Gang", "Family", "Club"\n` +
+    `- These are marketing terms for loyal customers, NEVER brewery names\n\n` +
+    `EXAMPLE (common failure to avoid):\n` +
+    `- Site calls customers "Batalhão Salvador" — this means "Salvador's Battalion" (the fan community)\n` +
+    `- The BREWERY name is "Salvador", not "Batalhão Salvador" and not "Batalhão"\n` +
+    `- Return: {"isSingleBrewery": true, "breweryName": "Salvador"}\n\n` +
     `If single brewery, extract the brewery name:\n` +
     `- PRIMARY name only (e.g., "Salvador" not "Salvador Brewing Company Ltd.")\n` +
     `- OR composed name (e.g., "Tree House", "Russian River", "Sierra Nevada")\n` +
@@ -214,16 +224,22 @@ const withRetry = async <T>(fn: () => Promise<T>, retries = 3, delayMs = 1000): 
   }
 };
 
-const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => ({
-  query,
-  beer_name: g.beer_name ? cleanBeerName(g.beer_name) : query,
-  brewery: g.brewery ?? 'Unknown',
-  style: g.style ?? 'Unknown',
-  abv: g.abv ?? null,
-  rating_score: g.rating_score ?? null,
-  rating_count: g.rating_count ?? null,
-  description: g.description ?? null,
-});
+const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => {
+  const beerName = g.beer_name ? cleanBeerName(g.beer_name) : query;
+  return {
+    id: beersDb.slugify(beerName),
+    query,
+    beer_name: beerName,
+    brewery: g.brewery ?? 'Unknown',
+    style: g.style ?? 'Unknown',
+    abv: g.abv ?? null,
+    ibu: null,
+    check_ins: null,
+    rating_score: g.rating_score ?? null,
+    rating_count: g.rating_count ?? null,
+    description: g.description ?? null,
+  };
+};
 
 // ── Extract beer names from scraped content ───────────────────────────────────
 
@@ -362,11 +378,14 @@ const fetchBeerDetails = async (names: string[]): Promise<NormalizedBeer[]> => {
     const untappdData = untappdResults.get(name.toLowerCase());
     if (untappdData && untappdData.brewery !== 'Unknown') {
       results.push({
+        id: beersDb.slugify(untappdData.beer_name),
         query: name,
         beer_name: untappdData.beer_name,
         brewery: untappdData.brewery,
         style: untappdData.style,
         abv: untappdData.abv,
+        ibu: untappdData.ibu,
+        check_ins: untappdData.check_ins,
         rating_score: untappdData.rating_score,
         rating_count: untappdData.rating_count,
         description: untappdData.description,

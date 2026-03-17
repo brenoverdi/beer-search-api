@@ -61,9 +61,11 @@ const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => {
     ratingScore = null;
   }
   
+  const beerName = g.beer_name ? cleanBeerName(g.beer_name) : query;
   return {
+    id: beersDb.slugify(beerName),
     query,
-    beer_name: g.beer_name ? cleanBeerName(g.beer_name) : query,
+    beer_name: beerName,
     brewery: g.brewery ?? 'Unknown',
     style: g.style ?? 'Unknown',
     abv: g.abv ?? null,
@@ -140,6 +142,7 @@ const fetchPopularBeers = async (names: string[]): Promise<NormalizedBeer[]> => 
     const untappdData = untappdResults.get(name.toLowerCase());
     if (untappdData && untappdData.brewery !== 'Unknown') {
       results.push({
+        id: beersDb.slugify(untappdData.beer_name),
         query: name,
         beer_name: untappdData.beer_name,
         brewery: untappdData.brewery,
@@ -195,6 +198,7 @@ export class GetPopularBeersUseCase {
     console.log(`[GetPopular] Found ${dbRows.length}/${POPULAR_NAMES.length} beers in database`);
     if (dbRows.length === POPULAR_NAMES.length) {
       const results: NormalizedBeer[] = dbRows.map((r) => ({
+        id: r.id,
         query: r.beerName,
         beer_name: r.beerName,
         brewery: r.brewery,

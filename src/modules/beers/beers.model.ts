@@ -11,6 +11,7 @@ export interface GeminiResult {
 }
 
 export interface NormalizedBeer {
+  id: string;
   query: string;
   beer_name: string;
   brewery: string;

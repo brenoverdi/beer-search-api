@@ -3,6 +3,7 @@ import prisma from '../../prisma/index';
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface NormalizedBeer {
+  id: string;
   query: string;
   beer_name: string;
   brewery: string;

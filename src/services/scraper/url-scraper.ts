@@ -49,6 +49,15 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
       timeout: 30000,
     });
 
+    // Wait for common e-commerce product containers to appear.
+    // Some sites (e.g. ReadyShop/1001.it) trigger an AJAX load on page load that fires
+    // slightly after networkidle2 settles — this waitForSelector catches them.
+    console.log(`[${timestamp}] [URLScraper] Waiting for product containers...`);
+    await page.waitForSelector(
+      '.resultBox, .product-item, .product-card, .product-tile, [class*="product-list"] > *, [class*="item-product"], .rdy-search-results .resultBox, [class*="products-grid"] > *',
+      { timeout: 10000 }
+    ).catch(() => {}); // Non-product pages won't have these — silently ignore
+
     // Initial scroll to load content and reveal "Load More" buttons
     console.log(`[${timestamp}] [URLScraper] Initial scroll to reveal content...`);
     await page.evaluate(() => {
@@ -56,6 +65,8 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
       window.scrollTo(0, document.body.scrollHeight);
     });
     await new Promise(resolve => setTimeout(resolve, 3000));
+    // Wait for any scroll-triggered AJAX (e.g. infinite scroll, lazy product loading) to finish
+    await page.waitForNetworkIdle({ idleTime: 500, timeout: 8000 }).catch(() => {});
 
     // Try to click "Load More" buttons to load additional content
     console.log(`[${timestamp}] [URLScraper] Checking for "Load More" buttons...`);
@@ -133,21 +144,18 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
           }
 
           if (buttonTexts.some(btnText => text.includes(btnText))) {
-            // @ts-ignore - runs in browser context
-            if (!button || button.offsetParent === null) {
-              return { found: true, text, x: 0, y: 0, reason: 'not visible', buttonTexts: allButtonTexts, visualizzaButtons };
-            }
+            // Scroll into view first — offsetParent===null is NOT a reliable visibility check
+            // (it's also null for position:fixed/sticky elements which are perfectly clickable)
             // @ts-ignore - runs in browser context
             button.scrollIntoView({ behavior: 'instant', block: 'center' });
             // @ts-ignore - runs in browser context
             const rect = button.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) {
-              return { found: true, text, x: 0, y: 0, reason: 'not visible', buttonTexts: allButtonTexts, visualizzaButtons };
-            }
+            const hasCoords = rect.width > 0 && rect.height > 0;
             return {
               found: true, text,
-              x: Math.round(rect.left + rect.width / 2),
-              y: Math.round(rect.top + rect.height / 2),
+              x: hasCoords ? Math.round(rect.left + rect.width / 2) : 0,
+              y: hasCoords ? Math.round(rect.top + rect.height / 2) : 0,
+              useJsClick: !hasCoords,
               buttonTexts: allButtonTexts, visualizzaButtons,
             };
           }
@@ -162,17 +170,17 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
         for (const selector of commonSelectors) {
           // @ts-ignore - runs in browser context
           const element = document.querySelector(selector);
-          // @ts-ignore - runs in browser context
-          if (!element || element.offsetParent === null) continue;
+          if (!element) continue;
           // @ts-ignore - runs in browser context
           element.scrollIntoView({ behavior: 'instant', block: 'center' });
           // @ts-ignore - runs in browser context
           const rect = element.getBoundingClientRect();
-          if (rect.width === 0 || rect.height === 0) continue;
+          const hasCoords = rect.width > 0 && rect.height > 0;
           return {
             found: true, text: selector,
-            x: Math.round(rect.left + rect.width / 2),
-            y: Math.round(rect.top + rect.height / 2),
+            x: hasCoords ? Math.round(rect.left + rect.width / 2) : 0,
+            y: hasCoords ? Math.round(rect.top + rect.height / 2) : 0,
+            useJsClick: !hasCoords,
             buttonTexts: allButtonTexts, visualizzaButtons,
           };
         }
@@ -197,19 +205,27 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
       }
 
       if (buttonInfo.found) {
-        console.log(`[${timestamp}] [URLScraper] Found button: "${buttonInfo.text}"${buttonInfo.reason ? ` (${buttonInfo.reason})` : ''}`);
+        const jsClick = buttonInfo.useJsClick || (!buttonInfo.x && !buttonInfo.y);
+        console.log(`[${timestamp}] [URLScraper] Found button: "${buttonInfo.text}" (${jsClick ? 'JS click' : `coords ${buttonInfo.x},${buttonInfo.y}`})`);
 
-        if (buttonInfo.reason === 'not visible' || !buttonInfo.x || !buttonInfo.y) {
-          console.log(`[${timestamp}] [URLScraper] Button found but not clickable (not visible)`);
-          break;
-        }
-
-        // Wait for scroll to settle, then use Puppeteer's native mouse click
-        // which properly triggers framework event handlers (React, Vue, etc.)
         await new Promise(resolve => setTimeout(resolve, 500));
 
         try {
-          await page.mouse.click(buttonInfo.x, buttonInfo.y);
+          if (jsClick) {
+            // element.click() bypasses all visibility/positioning constraints (works for fixed/sticky elements)
+            await page.evaluate((btnText) => {
+              // @ts-ignore - runs in browser context
+              const allEls = Array.from(document.querySelectorAll('*'));
+              // @ts-ignore - runs in browser context
+              const el = allEls.find((e) => {
+                const t = ((e as any).textContent || '').replace(/\s+/g, ' ').toLowerCase().trim();
+                return t.includes(btnText) && (e as any).children.length <= 3;
+              }) as any;
+              if (el) el.click();
+            }, buttonInfo.text as string);
+          } else {
+            await page.mouse.click(buttonInfo.x, buttonInfo.y);
+          }
           loadMoreClicks++;
           console.log(`[${timestamp}] [URLScraper] Clicked "Load More" button (${loadMoreClicks}/${maxLoadMoreClicks})`);
           // Wait for new content to load
@@ -250,28 +266,134 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
     // Wait for content to load after scrolling
     await new Promise(resolve => setTimeout(resolve, 3000));
 
+    // Helper: extract clean text from the current page DOM
+    const extractCurrentPageContent = async (): Promise<string> =>
+      page.evaluate(() => {
+        const selectorsToRemove = [
+          'script', 'style', 'iframe', 'noscript',
+          '[class*="cookie"]', '[class*="popup"]', '[class*="modal"]',
+          '[class*="advertisement"]', '[id*="ad-"]', '[class*="banner"]'
+        ];
+        selectorsToRemove.forEach(selector => {
+          // @ts-ignore - runs in browser context
+          document.querySelectorAll(selector).forEach((el: any) => el.remove());
+        });
+        // @ts-ignore - runs in browser context
+        return document.body.textContent || '';
+      });
+
+    // Extract page 1 content
+    let accumulatedContent = await extractCurrentPageContent();
+    let previousPageFingerprint = accumulatedContent.substring(0, 500);
+
+    // Pagination loop — follow next-page controls until exhausted (max 20 pages)
+    const maxPaginationPages = 20;
+    for (let pageNum = 2; pageNum <= maxPaginationPages; pageNum++) {
+      const nextPageInfo = await page.evaluate(() => {
+        // Most reliable: rel="next" or aria-label
+        // @ts-ignore
+        const relNext: HTMLAnchorElement | null = document.querySelector('a[rel="next"], [aria-label*="next" i], [aria-label*="próximo" i]');
+        if (relNext) {
+          const href = relNext.getAttribute('href');
+          return { found: true, href, useJsClick: !href || href === '#' || href === '' };
+        }
+
+        // CSS class patterns
+        const classPatterns = ['.pagination-next', '.next-page', '.pager-next', '.page-next'];
+        for (const sel of classPatterns) {
+          // @ts-ignore
+          const el: HTMLAnchorElement | null = document.querySelector(sel);
+          if (!el) continue;
+          const href = el.getAttribute('href');
+          if (href && href !== '#' && href !== '') return { found: true, href, useJsClick: false };
+          return { found: true, href: null as string | null, useJsClick: true };
+        }
+
+        // [class*="next"] on anchor/button tags only (avoid broad false positives)
+        // @ts-ignore
+        const nextClassEls: HTMLAnchorElement[] = Array.from(document.querySelectorAll('a[class*="next"], button[class*="next"]'));
+        for (const el of nextClassEls) {
+          const href = el.getAttribute('href');
+          if (href && href !== '#' && href !== '') return { found: true, href, useJsClick: false };
+          return { found: true, href: null as string | null, useJsClick: true };
+        }
+
+        // Text-based search (exact match to avoid false positives)
+        const nextTexts = ['next', 'próximo', 'siguiente', 'suivant', 'nächste', 'volgende', 'avanti', '›', '»'];
+        // @ts-ignore
+        const allLinks: Element[] = Array.from(document.querySelectorAll('a, button, [role="button"]'));
+        for (const el of allLinks) {
+          const text = ((el as any).textContent || '').replace(/\s+/g, ' ').toLowerCase().trim();
+          if (nextTexts.some(t => text === t)) {
+            const href = (el as any).getAttribute?.('href');
+            if (href && href !== '#' && href !== '') return { found: true, href, useJsClick: false };
+            return { found: true, href: null as string | null, useJsClick: true };
+          }
+        }
+
+        return { found: false, href: null as string | null, useJsClick: false };
+      });
+
+      if (!nextPageInfo.found) {
+        console.log(`[${timestamp}] [URLScraper] No more pagination — stopped at page ${pageNum - 1}`);
+        break;
+      }
+
+      console.log(`[${timestamp}] [URLScraper] Navigating to page ${pageNum}...`);
+      try {
+        if (nextPageInfo.href && !nextPageInfo.useJsClick) {
+          const nextUrl = new URL(nextPageInfo.href, url).href;
+          await page.goto(nextUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+        } else {
+          // JS click the next-page element
+          await page.evaluate(() => {
+            // @ts-ignore
+            const relNext = document.querySelector('a[rel="next"], [aria-label*="next" i], [aria-label*="próximo" i]');
+            if (relNext) { (relNext as any).click(); return; }
+            // @ts-ignore
+            const nextClassEl = document.querySelector('a[class*="next"], button[class*="next"]');
+            if (nextClassEl) { (nextClassEl as any).click(); return; }
+            const nextTexts = ['next', 'próximo', 'siguiente', 'suivant', 'nächste', 'volgende', 'avanti', '›', '»'];
+            // @ts-ignore
+            const allLinks: Element[] = Array.from(document.querySelectorAll('a, button, [role="button"]'));
+            for (const el of allLinks) {
+              const text = ((el as any).textContent || '').replace(/\s+/g, ' ').toLowerCase().trim();
+              if (nextTexts.some(t => text === t)) { (el as any).click(); return; }
+            }
+          });
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          await page.waitForNetworkIdle({ idleTime: 500, timeout: 8000 }).catch(() => {});
+        }
+
+        // Scroll to trigger lazy content on the new page
+        await page.evaluate(() => {
+          // @ts-ignore
+          window.scrollTo(0, document.body.scrollHeight);
+        });
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await page.waitForNetworkIdle({ idleTime: 500, timeout: 5000 }).catch(() => {});
+
+        // Extract this page's content and check for stuck loop
+        const pageContent = await extractCurrentPageContent();
+        const fingerprint = pageContent.substring(0, 500);
+        if (fingerprint === previousPageFingerprint) {
+          console.log(`[${timestamp}] [URLScraper] Page ${pageNum} identical to previous — stopping pagination`);
+          break;
+        }
+        previousPageFingerprint = fingerprint;
+        accumulatedContent += `\n--- PAGE ${pageNum} ---\n` + pageContent;
+        console.log(`[${timestamp}] [URLScraper] ✓ Page ${pageNum} extracted (${pageContent.length} chars)`);
+      } catch (e) {
+        console.log(`[${timestamp}] [URLScraper] Pagination error on page ${pageNum}:`, e);
+        break;
+      }
+    }
+
     // Get page title
     const title = await page.title();
 
-    // Extract text content after JavaScript has rendered
-    // Note: The function below runs in the browser context, so 'document' is available
-    const content = await page.evaluate(() => {
-      // Remove only truly unwanted elements (keep product containers, nav, etc.)
-      const selectorsToRemove = [
-        'script', 'style', 'iframe', 'noscript',
-        '[class*="cookie"]', '[class*="popup"]', '[class*="modal"]',
-        '[class*="advertisement"]', '[id*="ad-"]', '[class*="banner"]'
-      ];
-      
-      selectorsToRemove.forEach(selector => {
-        // @ts-ignore - runs in browser context
-        document.querySelectorAll(selector).forEach((el) => el.remove());
-      });
-
-      // Get all text content from body (don't filter by main selectors)
-      // @ts-ignore - runs in browser context
-      return document.body.textContent || '';
-    });
+    // Use accumulated multi-page content (page 1 + any paginated pages)
+    const content = accumulatedContent;
 
     await browser.close();
 
@@ -281,9 +403,9 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
       .replace(/\n\s*\n/g, '\n')
       .trim();
 
-    // Limit content size
-    const limitedContent = cleanedContent.length > 50000 
-      ? cleanedContent.substring(0, 50000) + '...'
+    // Limit content size (100KB to accommodate multiple pages)
+    const limitedContent = cleanedContent.length > 100000
+      ? cleanedContent.substring(0, 100000) + '...'
       : cleanedContent;
 
     console.log(`[${timestamp}] [URLScraper] ✓ Puppeteer extracted ${limitedContent.length} characters`);

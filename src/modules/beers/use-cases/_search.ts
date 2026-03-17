@@ -145,18 +145,22 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
     new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
   ]);
 
-const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => ({
-  query,
-  beer_name: g.beer_name ? cleanBeerName(g.beer_name) : query,
-  brewery: g.brewery ?? 'Unknown',
-  style: g.style ?? 'Unknown',
-  abv: g.abv ?? null,
-  ibu: null,
-  check_ins: null,
-  rating_score: g.rating_score ?? null,
-  rating_count: g.rating_count ?? null,
-  description: g.description ?? null,
-});
+const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => {
+  const beerName = g.beer_name ? cleanBeerName(g.beer_name) : query;
+  return {
+    id: beersDb.slugify(beerName),
+    query,
+    beer_name: beerName,
+    brewery: g.brewery ?? 'Unknown',
+    style: g.style ?? 'Unknown',
+    abv: g.abv ?? null,
+    ibu: null,
+    check_ins: null,
+    rating_score: g.rating_score ?? null,
+    rating_count: g.rating_count ?? null,
+    description: g.description ?? null,
+  };
+};
 
 // Fetch beer details from Untappd ONLY - no AI fallback
 const fetchBeerDetails = async (names: string[]): Promise<NormalizedBeer[]> => {
@@ -176,6 +180,7 @@ const fetchBeerDetails = async (names: string[]): Promise<NormalizedBeer[]> => {
     const untappdData = untappdResults.get(name.toLowerCase());
     if (untappdData && untappdData.brewery !== 'Unknown') {
       results.push({
+        id: beersDb.slugify(untappdData.beer_name),
         query: name,
         beer_name: untappdData.beer_name,
         brewery: untappdData.brewery,
@@ -212,27 +217,26 @@ const extractNamesFromImage = async (base64Data: string, mimeType: string): Prom
   console.log(`[${timestamp}] [ImageExtraction] Starting image analysis`);
   console.log(`[${timestamp}] [ImageExtraction] Image type: ${mimeType}, size: ${Math.round(base64Data.length / 1024)}KB`);
 
-  const prompt = `You are a beer label recognition expert. Analyze this image and extract ONLY the beer names that are clearly visible.
+  const prompt = `You are an OCR (optical character recognition) tool specialized in beer labels. Your ONLY job is to read the EXACT TEXT printed on the labels in this image.
 
-RULES:
-1. Extract ONLY beers you can actually see in the image
-2. DO NOT hallucinate or guess beer names
-3. DO NOT include beers from your training data that aren't visible
-4. Format: "Brewery BeerName" if both are visible, or just "BeerName" if only beer name is visible
-5. DO NOT include style descriptors (NO "IPA", "Stout", "Lager" suffixes)
-6. IGNORE volume indicators (NO "44CL", "473ML", "330ML")
-7. If the image shows a website or store with many beers, extract ALL visible beer names
+CRITICAL RULES — READ CAREFULLY:
+1. Read ONLY what is literally printed on the labels. Treat this like a barcode scanner — you output exactly what the label says.
+2. DO NOT substitute, correct, or replace any text with a beer name you know from training data.
+   - WRONG: seeing "Speed Pale Ale" on a label and outputting "Speedway Stout"
+   - WRONG: seeing "Kame Hame Ha" on a label and outputting "Pliny the Elder"
+   - RIGHT: outputting exactly "Speed Pale Ale" because that's what the label says
+3. DO NOT use your beer knowledge to "improve" or "correct" the names you see.
+4. If a brewery name is visible alongside the beer name, include it: "Brewery BeerName"
+5. If only the beer name is visible, use just the beer name
+6. IGNORE volume indicators (473ML, 330ML, 350ML, 44CL, etc.)
+7. IGNORE style descriptors appended after a dash (e.g. "Speed Pale Ale - NZ Pale Ale" → extract "Speed Pale Ale")
 
-EXAMPLES OF CORRECT OUTPUT:
-["Russian River Pliny the Elder", "Sierra Nevada Pale Ale", "Guinness Draught"]
-
-EXAMPLES OF INCORRECT OUTPUT:
-["Pliny the Elder - IPA", "Sierra Nevada Pale Ale 355ML", "Random Beer Not In Image"]
-
-Return ONLY a JSON array of strings. No markdown, no explanation. If no beers are visible, return [].`;
+Return ONLY a JSON array of strings. No markdown, no explanation.
+Examples: ["Salvador Speed Pale Ale", "Salvador Kame Hame Ha", "Salvador Melão Fofo"]
+If no beer labels are visible, return [].`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     contents: [{
       role: 'user',
       parts: [
