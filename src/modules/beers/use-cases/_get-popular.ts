@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { injectable } from 'tsyringe';
 import { GoogleGenAI } from '@google/genai';
 import { AppError } from '../../../middlewares/error.middleware';

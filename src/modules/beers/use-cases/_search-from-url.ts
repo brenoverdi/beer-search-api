@@ -4,7 +4,7 @@ import { AppError } from '../../../middlewares/error.middleware';
 import * as beersDb from '../../../services/db/beers/beers.db';
 import { cacheGet, cacheSet } from '../../../services/cache/cache';
 import { NormalizedBeer, GeminiResult, SearchSource } from '../beers.model';
-import { scrapePageContent } from '../../../services/scraper/url-scraper';
+import { scrapePageContent, scrapeDynamicContent } from '../../../services/scraper/url-scraper';
 import { scrapeUntappdBeers } from '../../../services/scraper/untappd-scraper';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
@@ -12,17 +12,109 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
 /**
- * Clean beer name by removing style suffixes that Gemini might include.
+ * Clean beer name by removing style descriptors from beginning and end.
  * Examples:
+ *   "Avery Certation Equestris Sour BA" -> "Avery Certation Equestris"
+ *   "IPA Sierra Nevada Pale Ale" -> "Sierra Nevada Pale Ale"
  *   "Guinness Draught - Stout - Irish Dry" -> "Guinness Draught"
- *   "Sierra Nevada Pale Ale - Pale Ale - American" -> "Sierra Nevada Pale Ale"
+ *   "Barrel Aged Imperial Stout Special Reserve" -> "Special Reserve"
  */
 const cleanBeerName = (name: string): string => {
-  // Remove style suffixes like " - IPA - Imperial", " - Stout - Irish Dry", etc.
-  // Common style keywords to strip
-  const stylePattern = /\s*-\s*(IPA|Stout|Lager|Ale|Porter|Pilsner|Wheat|Sour|Saison|Lambic|Gose|Kolsch|Bitter|Brown|Amber|Red|Blonde|Golden|Dark|Light|Imperial|Double|Triple|Quad|Session|Hazy|New England|West Coast|American|Belgian|German|English|Irish|Scottish|Czech|Baltic|Dry|Milk|Oatmeal|Coffee|Chocolate|Vanilla|Barrel[- ]Aged|Wood[- ]Aged|Farmhouse|Wild|Spontaneous|Fruited|Berliner|Weisse|Hefeweizen|Dunkel|Bock|Maibock|Doppelbock|Marzen|Oktoberfest|Rauchbier|Schwarzbier|Vienna|Pale|India|New England|Hazy|Juicy|Tropical|Citrus|Pine|Resinous|Hoppy|Malty|Sweet|Bitter|Tart|Funky|Earthy|Spicy|Crisp|Smooth|Creamy|Full[- ]Bodied|Light[- ]Bodied|Medium[- ]Bodied)(?:\s*-\s*[A-Za-z\s]+)?$/i;
+  let cleaned = name.trim();
   
-  return name.replace(stylePattern, '').trim();
+  // Common style keywords and abbreviations to remove
+  // IMPORTANT: Longer phrases first, so "American IPA" matches before "American" or "IPA" alone
+  const styleKeywords = [
+    // Multi-word style combinations (longest first)
+    'Barrel Aged Imperial Stout', 'Bourbon Barrel Aged Stout', 'Oak Aged Imperial Stout',
+    'Double Barrel Aged', 'Triple Barrel Aged',
+    'New England IPA', 'West Coast IPA', 'East Coast IPA',
+    'American IPA', 'English IPA', 'Belgian IPA', 'Session IPA',
+    'American Pale Ale', 'English Pale Ale', 'Belgian Pale Ale',
+    'American Stout', 'Russian Imperial Stout', 'Imperial Stout', 'Milk Stout', 'Oatmeal Stout',
+    'American Lager', 'Czech Lager', 'Imperial Lager',
+    'American Porter', 'English Porter', 'Baltic Porter',
+    'Imperial Porter', 'Robust Porter',
+    'American Amber', 'American Brown', 'American Wheat',
+    'German Pilsner', 'Czech Pilsner', 'Bohemian Pilsner',
+    'Hazy IPA', 'Juicy IPA', 'Milkshake IPA',
+    'Double IPA', 'Triple IPA', 'Imperial IPA',
+    'Barrel Aged Stout', 'Barrel Aged Porter', 'Barrel Aged Barleywine',
+    'Berliner Weisse', 'Berliner Weiss',
+    'Belgian Dubbel', 'Belgian Tripel', 'Belgian Quad', 'Belgian Strong Ale',
+    'Imperial Saison', 'Farmhouse Ale',
+    'Extra Special Bitter', 'English Bitter',
+    'India Pale Ale',
+    
+    // Base styles and abbreviations
+    'NEIPA', 'WCIPA', 'IPA', 'DIPA', 'TIPA', 'IIPA', 'APA', 'EPA',
+    'ESB', 'RIS', 'BBA',
+    'Stout', 'Lager', 'Ale', 'Porter', 'Pilsner', 'Pils',
+    'Wheat', 'Weizen', 'Wit', 'Sour', 'Saison', 'Lambic', 'Gose', 'Kolsch', 'Bitter',
+    'Brown', 'Amber', 'Red', 'Blonde', 'Golden', 'Dark', 'Light', 'Pale',
+    'Barleywine',
+    
+    // Modifiers
+    'Imperial', 'Double', 'Triple', 'Quad', 'Quadrupel', 'Dubbel', 'Tripel',
+    'Session', 'Hazy', 'Juicy', 'Milkshake', 'Pastry',
+    
+    // Origins
+    'American', 'Belgian', 'German', 'English', 'Irish', 'Scottish', 'Czech',
+    'Baltic', 'West Coast', 'East Coast', 'New England', 'Bohemian', 'NE',
+    
+    // Adjectives
+    'Dry', 'Milk', 'Oatmeal', 'Coffee', 'Chocolate', 'Vanilla',
+    'Fruited', 'Berliner', 'Hefeweizen', 'Dunkel', 'Bock', 'Maibock',
+    'Doppelbock', 'Marzen', 'Oktoberfest', 'Rauchbier', 'Schwarzbier',
+    'Vienna', 'India', 'Tropical', 'Citrus', 'Pine', 'Resinous',
+    'Hoppy', 'Malty', 'Sweet', 'Tart', 'Funky', 'Earthy', 'Spicy',
+    'Crisp', 'Smooth', 'Creamy', 'Wild', 'Spontaneous', 'Farmhouse', 'Robust',
+    
+    // Aging/Treatment
+    'Bourbon Barrel', 'Wine Barrel', 'Oak Barrel',
+    'Barrel Aged', 'Barrel-Aged', 'Wood Aged', 'Wood-Aged',
+    'Oak Aged', 'Oak-Aged',
+    'BA', 'Barrel', 'Cask', 'Aged',
+    
+    // Common suffixes
+    'Strong Ale', 'Style', 'Beer', 'Brew', 'Brewed', 'Weisse', 'Weiss'
+  ];
+  
+  // Create pattern for styles at the end (with word boundaries to avoid matching parts of words)
+  // \b ensures we only match complete words, not parts like "BA" in "Balabiott" or "Brew" in "Brewski"
+  const stylePattern = new RegExp(
+    `\\s*[-–—]?\\s*\\b(${styleKeywords.join('|')})\\b\\s*[-–—]?\\s*$`,
+    'gi'
+  );
+  
+  // Remove styles from the end (multiple passes to catch chains like "Sour BA")
+  let previousCleaned = '';
+  let iterations = 0;
+  const maxIterations = 5; // Prevent infinite loops
+  
+  while (cleaned !== previousCleaned && iterations < maxIterations) {
+    previousCleaned = cleaned;
+    cleaned = cleaned.replace(stylePattern, '').trim();
+    iterations++;
+  }
+  
+  // Remove styles from the beginning (with word boundaries)
+  const prefixPattern = new RegExp(
+    `^\\s*\\b(${styleKeywords.join('|')})\\b\\s*[-–—]?\\s*`,
+    'gi'
+  );
+  
+  cleaned = cleaned.replace(prefixPattern, '').trim();
+  
+  // Remove any remaining standalone hyphens or dashes at the end
+  cleaned = cleaned.replace(/\s*[-–—]+\s*$/, '').trim();
+  
+  // If we cleaned everything away, return original
+  if (cleaned.length === 0) {
+    return name.trim();
+  }
+  
+  return cleaned;
 };
 
 // ── Detect if URL is a single brewery website ─────────────────────────────────
@@ -33,24 +125,7 @@ interface BreweryDetectionResult {
 }
 
 const detectBreweryWebsite = async (url: string, pageContent: string, pageTitle: string): Promise<BreweryDetectionResult> => {
-  // Pre-check: common multi-brewery store domains
-  const multiBreweryStores = [
-    'totalwine', 'drizly', 'bevmo', 'binnys', 'craftshack',
-    'tavour', 'beer cartel', 'honest brew', 'beerwulf', 'bottleshop',
-    'beerstore', 'beermart', 'liquor', 'wine', 'spirits', 'beverage'
-  ];
-  
-  const urlLower = url.toLowerCase();
-  const titleLower = pageTitle.toLowerCase();
-  
-  for (const store of multiBreweryStores) {
-    if (urlLower.includes(store) || titleLower.includes(store)) {
-      console.log(`[BreweryDetection] Detected multi-brewery store from URL/title: ${store}`);
-      return { isSingleBrewery: false, breweryName: null };
-    }
-  }
-
-  // Use Gemini to analyze the page content
+  // Use Gemini to analyze the page content and identify the brewery
   if (!process.env.GEMINI_API_KEY) {
     console.log('[BreweryDetection] GEMINI_API_KEY not configured, skipping brewery detection');
     return { isSingleBrewery: false, breweryName: null };
@@ -61,19 +136,26 @@ const detectBreweryWebsite = async (url: string, pageContent: string, pageTitle:
     : pageContent;
 
   const prompt =
-    `Analyze this webpage to determine if it's a single brewery's website or a multi-brewery store/retailer.\n\n` +
+    `Analyze this webpage and identify the brewery name.\n\n` +
     `URL: ${url}\n` +
     `Page Title: ${pageTitle}\n\n` +
     `---PAGE CONTENT START---\n${truncatedContent}\n---PAGE CONTENT END---\n\n` +
-    `Determine:\n` +
-    `1. Is this the website of a SINGLE brewery (one brewery selling/showcasing their own beers)?\n` +
-    `2. Or is this a MULTI-BREWERY store/retailer (selling beers from multiple different breweries)?\n\n` +
-    `If it's a single brewery, extract the brewery name. The brewery name should be:\n` +
-    `- The PRIMARY name or FIRST NAME only (e.g., "Salvador" not "Salvador Brewing Company")\n` +
-    `- OR if it's a COMPOSED name, include all parts (e.g., "Tree House", "Russian River", "Sierra Nevada")\n` +
-    `- Examples: "Salvador", "Tree House", "Russian River", "Stone", "Dogfish Head"\n` +
-    `- NOT full legal names like "Salvador Brewing Company Ltd."\n\n` +
-    `Return ONLY valid JSON in this exact format:\n` +
+    `Your task: Determine what brewery makes/sells the beers on this website.\n\n` +
+    `Questions to answer:\n` +
+    `1. Is this a SINGLE brewery's website (their own online store, brewery site, or catalog)?\n` +
+    `   - Examples: Salvador brewery's store, Tree House brewery website, Russian River online shop\n` +
+    `   - Even if URL contains "store" or "shop", it's still a single brewery if they only sell their own beers\n` +
+    `2. OR is this a MULTI-BREWERY retailer (sells beers from many different breweries)?\n` +
+    `   - Examples: Total Wine, Drizly, BevMo, craft beer stores carrying multiple brands\n\n` +
+    `IMPORTANT: Identify the actual BREWERY name, not marketing terms or slogans.\n` +
+    `- Look for: "About us", brewery information, who brews these beers, company name\n` +
+    `- Ignore: Marketing nicknames for customers, website taglines, promotional terms\n` +
+    `- Example: If site uses "Batalhão" as customer nickname but beers are made by "Salvador", return "Salvador"\n\n` +
+    `If single brewery, extract the brewery name:\n` +
+    `- PRIMARY name only (e.g., "Salvador" not "Salvador Brewing Company Ltd.")\n` +
+    `- OR composed name (e.g., "Tree House", "Russian River", "Sierra Nevada")\n` +
+    `- Examples: "Salvador", "Stone", "Dogfish Head", "Tree House"\n\n` +
+    `Return ONLY valid JSON:\n` +
     `{"isSingleBrewery": true/false, "breweryName": "Name" or null}\n\n` +
     `No markdown, no explanation, just the JSON object.`;
 
@@ -132,12 +214,6 @@ const withRetry = async <T>(fn: () => Promise<T>, retries = 3, delayMs = 1000): 
   }
 };
 
-const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
-  Promise.race([
-    promise,
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-  ]);
-
 const normalize = (g: Partial<GeminiResult>, query: string): NormalizedBeer => ({
   query,
   beer_name: g.beer_name ? cleanBeerName(g.beer_name) : query,
@@ -167,30 +243,41 @@ const extractNamesFromContent = async (
   let prompt: string;
 
   if (detectedBrewery?.isSingleBrewery && detectedBrewery.breweryName) {
-    // Single brewery: extract ONLY beer names, we'll prefix with brewery name later
+    // Single brewery: extract ONLY actual beer product names
     prompt =
       `Analyze this text content from "${detectedBrewery.breweryName}" brewery's webpage titled "${pageTitle}":\n\n` +
       `---PAGE CONTENT START---\n${truncatedContent}\n---PAGE CONTENT END---\n\n` +
-      `This is the website of "${detectedBrewery.breweryName}" brewery.\n\n` +
-      `Extract ALL specific beer names from this brewery. Extract ONLY the beer names themselves, WITHOUT the brewery name prefix.\n` +
-      `Format: Just the beer name (e.g., "Pliny the Elder", "Pale Ale", "Batalhão", "Kame Hame Ha")\n\n` +
-      `Look for:\n` +
-      `- Beer names listed on the page\n` +
-      `- Product names that are beers\n` +
-      `- Tap list items\n` +
-      `- Beer names in different languages (Italian, Portuguese, German, etc.)\n\n` +
-      `IMPORTANT: Extract ONLY the beer name, WITHOUT brewery prefix or style suffixes.\n` +
-      `CORRECT: "Batalhão", "Kame Hame Ha", "Pale Ale", "Two Hearted Ale"\n` +
-      `WRONG: "${detectedBrewery.breweryName} Batalhão", "Batalhão - IPA", "Salvador Kame Hame Ha"\n\n` +
-      `IGNORE:\n` +
-      `- Volume sizes (330ml, 473ml, pints, etc.)\n` +
-      `- Prices and currencies\n` +
-      `- Style suffixes (IPA, Stout, Lager, etc.)\n` +
-      `- Generic categories (just "IPA" or "Lager" without specific name)\n` +
-      `- Navigation menu, headers, footers\n\n` +
-      `Return ONLY a valid JSON array of beer name strings, maximum 50 beers.\n` +
-      `Example: ["Batalhão", "Kame Hame Ha", "Pale Ale"]\n` +
-      `If no beers found, return []. Output ONLY valid JSON, no markdown or explanation.`;
+      `This is "${detectedBrewery.breweryName}" brewery's website.\n\n` +
+      `Extract ALL actual BEER PRODUCT NAMES being sold/listed on this page.\n` +
+      `Extract ONLY the beer names themselves - do NOT include brewery name, do NOT include marketing terms.\n\n` +
+      `CRITICAL INSTRUCTIONS:\n` +
+      `- The brewery name is "${detectedBrewery.breweryName}" - DO NOT include it\n` +
+      `- Extract only PRODUCT names (what beers can you buy/see listed?)\n` +
+      `- Ignore marketing terms, slogans, or customer nicknames\n` +
+      `- Ignore the brewery name "${detectedBrewery.breweryName}" itself\n` +
+      `- Beer names should be specific products, not generic styles\n\n` +
+      `What to look for:\n` +
+      `- Beer catalog/product listings\n` +
+      `- Menu items that are specific beers\n` +
+      `- Named beer products with unique titles\n` +
+      `- Beer names in any language (English, Portuguese, German, etc.)\n\n` +
+      `CORRECT extraction examples:\n` +
+      `- "Kame Hame Ha" (specific beer product name)\n` +
+      `- "Pale Ale" (if it's a specific beer product)\n` +
+      `- "Two Hearted Ale" (specific beer name)\n` +
+      `- "Pliny the Elder" (specific beer name)\n\n` +
+      `DO NOT extract:\n` +
+      `- "${detectedBrewery.breweryName}" (brewery name)\n` +
+      `- "${detectedBrewery.breweryName} Kame Hame Ha" (has brewery prefix)\n` +
+      `- "Kame Hame Ha ${detectedBrewery.breweryName}" (has brewery suffix)\n` +
+      `- "Kame Hame Ha - IPA" (has style suffix)\n` +
+      `- Marketing terms or customer nicknames\n` +
+      `- Generic beer styles alone ("IPA", "Stout", "Lager")\n` +
+      `- Volume sizes, prices, navigation menu text\n` +
+      `- Website headers, footers, about us text\n\n` +
+      `Return ONLY a valid JSON array of beer product name strings, maximum 50 beers.\n` +
+      `Example: ["Kame Hame Ha", "Pale Ale", "Another Beer Name"]\n` +
+      `If no specific beer products found, return []. Output ONLY valid JSON, no markdown or explanation.`;
   } else {
     // Multi-brewery store: extract "Brewery BeerName" (current behavior)
     prompt =
@@ -260,57 +347,7 @@ const extractNamesFromContent = async (
 
 // ── Get beer details ──────────────────────────────────────────────────────────
 
-// Gemini fallback for beers not found on Untappd
-const callGeminiFallback = async (names: string[]): Promise<NormalizedBeer[]> => {
-  if (names.length === 0) return [];
-
-  const beerListStr = names.map((n, i) => `${i + 1}. "${n}"`).join('\n');
-  const prompt =
-    `You are a beer expert with comprehensive knowledge of craft beers, breweries, and beer ratings.\n\n` +
-    `For each of the following beers, provide details based on your knowledge:\n${beerListStr}\n\n` +
-    `For each beer, provide:\n` +
-    `- beer_name: ONLY the beer name itself, WITHOUT style suffixes (e.g. "Guinness Draught" NOT "Guinness Draught - Stout")\n` +
-    `- brewery: brewery name\n` +
-    `- style: beer style (e.g. "IPA", "Sour - Fruited", "Stout - Imperial")\n` +
-    `- abv: ABV percentage as number (e.g. 5.0, 8.5)\n` +
-    `- rating_score: estimated rating from 1.0 to 5.0 based on your knowledge of the beer's reputation\n` +
-    `- rating_count: estimated number of ratings (use null if unknown)\n` +
-    `- description: brief description of the beer (1-2 sentences)\n\n` +
-    `Return a JSON array with one object per beer in the same order as the input list.\n` +
-    `Format: [{"beer_name":"","brewery":"","style":"","abv":null,"rating_score":null,"rating_count":null,"description":""}]\n` +
-    `Use null for truly unknown fields. Output ONLY valid JSON array, no markdown or explanation.`;
-
-  const fallbackResults = names.map((n) => normalize({}, n));
-
-  const responsePromise = withRetry(() =>
-    ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    })
-  );
-
-  const response = await withTimeout(responsePromise, 15000, null);
-  if (!response) {
-    console.warn('[URLSearch] Gemini fallback timed out');
-    return fallbackResults;
-  }
-
-  const text = response.text ?? '';
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) return fallbackResults;
-
-  try {
-    const parsed = JSON.parse(jsonMatch[0]) as GeminiResult[];
-    return names.map((name, i) => {
-      const result = parsed[i];
-      return result ? normalize(result, name) : normalize({}, name);
-    });
-  } catch {
-    return fallbackResults;
-  }
-};
-
-// Main batch function: Untappd first, Gemini fallback
+// Main batch function: Untappd scraping only (no fallback)
 const fetchBeerDetails = async (names: string[]): Promise<NormalizedBeer[]> => {
   if (names.length === 0) return [];
 
@@ -341,21 +378,9 @@ const fetchBeerDetails = async (names: string[]): Promise<NormalizedBeer[]> => {
   }
 
   console.log(`[URLSearch] Untappd found ${names.length - unfoundNames.length}/${names.length} beers`);
-
-  // Step 2: For beers not found on Untappd, use Gemini as fallback
-  if (unfoundNames.length > 0 && process.env.GEMINI_API_KEY) {
-    console.log(`[URLSearch] Using Gemini fallback for ${unfoundNames.length} beers...`);
-    const geminiResults = await callGeminiFallback(unfoundNames);
-
-    // Merge Gemini results back into results array
-    const geminiMap = new Map(geminiResults.map((b) => [b.query.toLowerCase(), b]));
-    for (let i = 0; i < results.length; i++) {
-      const key = results[i].query.toLowerCase();
-      const geminiResult = geminiMap.get(key);
-      if (geminiResult && results[i].brewery === 'Unknown') {
-        results[i] = geminiResult;
-      }
-    }
+  
+  if (unfoundNames.length > 0) {
+    console.log(`[URLSearch] ${unfoundNames.length} beer(s) not found on Untappd - flagged with 'Unknown' brewery`);
   }
 
   return results;
@@ -403,6 +428,24 @@ export class SearchBeersFromUrlUseCase {
     names = Array.from(new Set(names)); // Deduplicate
     names = names.map((n) => cleanBeerName(n)); // Final clean-up
     console.log(`[URLSearch] Extracted ${names.length} beer names`);
+
+    // If static scraping found 0 beers, retry with Puppeteer as a safety net
+    if (names.length === 0 && scrapeResult.method === 'static') {
+      console.log(`[URLSearch] Static scraping found 0 beers, retrying with Puppeteer...`);
+      const dynamicResult = await scrapeDynamicContent(url);
+      
+      if (dynamicResult.success) {
+        console.log(`[URLSearch] Puppeteer extracted ${dynamicResult.content.length} chars from "${dynamicResult.title}"`);
+        const breweryDetectionRetry = await detectBreweryWebsite(url, dynamicResult.content, dynamicResult.title);
+        let retryNames = await extractNamesFromContent(dynamicResult.content, dynamicResult.title, breweryDetectionRetry);
+        retryNames = Array.from(new Set(retryNames));
+        retryNames = retryNames.map((n) => cleanBeerName(n));
+        console.log(`[URLSearch] Puppeteer retry found ${retryNames.length} beers`);
+        names = retryNames;
+      } else {
+        console.log(`[URLSearch] Puppeteer retry also failed: ${dynamicResult.error}`);
+      }
+    }
 
     if (names.length === 0) {
       return { source: 'url', url, beerNames: [], results: [] };

@@ -29,9 +29,11 @@ interface ScrapeAttemptResult {
  * Search Untappd for a beer and extract details from the first result.
  */
 export async function scrapeUntappdBeer(beerName: string): Promise<ScrapeAttemptResult> {
+  const timestamp = new Date().toISOString();
   try {
     const searchUrl = `https://untappd.com/search?q=${encodeURIComponent(beerName)}`;
-    console.log(`[Untappd] Searching: ${searchUrl}`);
+    console.log(`[${timestamp}] [Untappd] Searching: "${beerName}"`);
+    console.log(`[${timestamp}] [Untappd] URL: ${searchUrl}`);
     
     const response = await axios.get(searchUrl, {
       timeout: 10000,
@@ -49,7 +51,7 @@ export async function scrapeUntappdBeer(beerName: string): Promise<ScrapeAttempt
     const firstResult = $('.beer-item').first();
     
     if (firstResult.length === 0) {
-      console.log(`[Untappd] No .beer-item found for "${beerName}"`);
+      console.log(`[${timestamp}] [Untappd] ✗ No results found for "${beerName}"`);
       return { success: false, error: 'No results found' };
     }
 
@@ -140,17 +142,16 @@ export async function scrapeUntappdBeer(beerName: string): Promise<ScrapeAttempt
     const description = descEl.text().trim() || null;
 
     // Log the extraction result
-    console.log(`[Untappd] Scraped "${beerName}":`, {
-      found: extractedName,
-      brewery,
-      style,
-      abv,
-      rating: rating_score,
-      raters: rating_count,
-    });
+    console.log(`[${timestamp}] [Untappd] ✓ Found "${beerName}":`);
+    console.log(`[${timestamp}] [Untappd]   Beer: ${extractedName}`);
+    console.log(`[${timestamp}] [Untappd]   Brewery: ${brewery}`);
+    console.log(`[${timestamp}] [Untappd]   Style: ${style}`);
+    console.log(`[${timestamp}] [Untappd]   ABV: ${abv ?? 'N/A'}%`);
+    console.log(`[${timestamp}] [Untappd]   Rating: ${rating_score ?? 'N/A'} (${rating_count ?? 0} ratings)`);
 
     // Validate we got at least some useful data
     if (brewery === 'Unknown' && style === 'Unknown' && rating_score === null) {
+      console.log(`[${timestamp}] [Untappd] ✗ Insufficient data parsed for "${beerName}"`);
       return { success: false, error: 'Could not parse beer details' };
     }
 
@@ -168,7 +169,7 @@ export async function scrapeUntappdBeer(beerName: string): Promise<ScrapeAttempt
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    console.warn(`[Untappd] Scrape failed for "${beerName}": ${message}`);
+    console.error(`[${timestamp}] [Untappd] ✗ Error scraping "${beerName}": ${message}`);
     return { success: false, error: message };
   }
 }
@@ -181,11 +182,19 @@ export async function scrapeUntappdBeers(
   beerNames: string[],
   concurrency: number = 3
 ): Promise<Map<string, UntappdBeerResult | null>> {
+  const timestamp = new Date().toISOString();
   const results = new Map<string, UntappdBeerResult | null>();
+  
+  console.log(`[${timestamp}] [Untappd] Starting batch scrape: ${beerNames.length} beer(s), concurrency: ${concurrency}`);
   
   // Process in batches to avoid rate limiting
   for (let i = 0; i < beerNames.length; i += concurrency) {
     const batch = beerNames.slice(i, i + concurrency);
+    const batchNum = Math.floor(i / concurrency) + 1;
+    const totalBatches = Math.ceil(beerNames.length / concurrency);
+    
+    console.log(`[${timestamp}] [Untappd] Processing batch ${batchNum}/${totalBatches} (${batch.length} beer(s))`);
+    
     const batchResults = await Promise.all(
       batch.map(async (name) => {
         const result = await scrapeUntappdBeer(name);
@@ -202,6 +211,9 @@ export async function scrapeUntappdBeers(
       await new Promise((r) => setTimeout(r, 300));
     }
   }
+  
+  const foundCount = Array.from(results.values()).filter(r => r !== null).length;
+  console.log(`[${timestamp}] [Untappd] Batch complete: ${foundCount}/${beerNames.length} beers found`);
   
   return results;
 }

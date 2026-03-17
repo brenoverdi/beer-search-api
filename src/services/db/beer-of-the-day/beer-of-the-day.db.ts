@@ -5,10 +5,10 @@ import prismaClient from "../../prisma/index"
 export class BeerOfTheDayDbService {
   async getTodayBeer() {
     const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    const utcDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
 
     return prismaClient.beerOfTheDay.findUnique({
-      where: { date: today },
+      where: { date: utcDate },
     })
   }
 
@@ -18,11 +18,11 @@ export class BeerOfTheDayDbService {
     funFact: string
   }) {
     const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    const utcDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
 
     return prismaClient.beerOfTheDay.create({
       data: {
-        date: today,
+        date: utcDate,
         beerName: data.beerName,
         beerData: data.beerData,
         funFact: data.funFact,
