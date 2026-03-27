@@ -8,6 +8,8 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import puppeteer from 'puppeteer';
+import chromium from '@sparticuz/chromium';
+import puppeteerCore from 'puppeteer-core';
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
@@ -29,15 +31,29 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
   
   let browser;
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ],
-    });
+    const isLocal = process.env.NODE_ENV !== 'production' && !process.env.VERCEL && !process.env.AWS_REGION;
+    
+    if (isLocal) {
+      console.log(`[${timestamp}] [URLScraper] Launching Local Puppeteer`);
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+        ],
+      });
+    } else {
+      console.log(`[${timestamp}] [URLScraper] Launching Serverless Chromium`);
+      // Vercel / AWS Lambda environment
+      browser = await puppeteerCore.launch({
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless,
+      });
+    }
 
     const page = await browser.newPage();
     await page.setUserAgent(USER_AGENT);
