@@ -29,7 +29,7 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [URLScraper] Using Puppeteer for dynamic content: ${url}`);
   
-  let browser;
+  let browser: any;
   try {
     const isLocal = process.env.NODE_ENV !== 'production' && !process.env.VERCEL && !process.env.AWS_REGION;
     
@@ -49,9 +49,9 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
       // Vercel / AWS Lambda environment
       browser = await puppeteerCore.launch({
         args: chromium.args,
-        defaultViewport: chromium.defaultViewport,
+        defaultViewport: (chromium as any).defaultViewport,
         executablePath: await chromium.executablePath(),
-        headless: chromium.headless,
+        headless: (chromium as any).headless,
       });
     }
 
@@ -207,14 +207,14 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
       // Debug: log button texts on first iteration
       if (loadMoreClicks === 0 && buttonInfo.buttonTexts && buttonInfo.buttonTexts.length > 0) {
         console.log(`[${timestamp}] [URLScraper] DEBUG - Found ${buttonInfo.buttonTexts.length} buttons with text:`);
-        buttonInfo.buttonTexts.forEach((btnText, idx) => {
+        buttonInfo.buttonTexts.forEach((btnText: string, idx: number) => {
           console.log(`[${timestamp}] [URLScraper]   [${idx + 1}] "${btnText}"`);
         });
 
         // Log specific buttons with "visualizza" or "risultati"
         if (buttonInfo.visualizzaButtons && buttonInfo.visualizzaButtons.length > 0) {
           console.log(`[${timestamp}] [URLScraper] DEBUG - Elements with "visualizza" or "risultati" (${buttonInfo.visualizzaButtons.length} found):`);
-          buttonInfo.visualizzaButtons.forEach((btnText, idx) => {
+          buttonInfo.visualizzaButtons.forEach((btnText: string, idx: number) => {
             console.log(`[${timestamp}] [URLScraper]   >>> [${idx + 1}] "${btnText}"`);
           });
         }
@@ -229,7 +229,7 @@ export async function scrapeDynamicContent(url: string): Promise<ScrapeResult> {
         try {
           if (jsClick) {
             // element.click() bypasses all visibility/positioning constraints (works for fixed/sticky elements)
-            await page.evaluate((btnText) => {
+            await page.evaluate((btnText: string) => {
               // @ts-ignore - runs in browser context
               const allEls = Array.from(document.querySelectorAll('*'));
               // @ts-ignore - runs in browser context
