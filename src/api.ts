@@ -18,6 +18,7 @@ import listsRouter from './modules/lists/lists.route';
 import festivalsRouter from './modules/festivals/festivals.route';
 import beerOfTheDayRouter from './modules/beer-of-the-day/beer-of-the-day.route';
 import breweriesRouter from './modules/breweries/breweries.route';
+import activityRouter from './modules/activity/activity.route';
 
 const api = express();
 
@@ -67,6 +68,7 @@ api.use(base, listsRouter);
 api.use(`${base}/festivals`, festivalsRouter);
 api.use(`${base}/beer-of-the-day`, beerOfTheDayRouter);
 api.use(`${base}/breweries`, breweriesRouter);
+api.use(base, activityRouter);
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 api.use((_req: Request, res: Response) => {

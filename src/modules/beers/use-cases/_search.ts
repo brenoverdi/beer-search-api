@@ -291,6 +291,15 @@ export class SearchBeersUseCase {
     console.log(`[${timestamp}] [SearchBeers] New search request started`);
     console.log(`[${timestamp}] [SearchBeers] Source: ${imageFile ? 'IMAGE' : 'TEXT'}, User ID: ${userId ?? 'anonymous'}`);
     
+    // Check Freemium limits
+    const { getUserById, decrementSearches } = await import('../../../services/db/users/users.db');
+    if (userId) {
+      const user = await getUserById(userId);
+      if (user && !user.isPremium && user.searchesRemaining <= 0) {
+        throw new AppError(403, 'You have reached your free search limit. Please upgrade to Premium.');
+      }
+    }
+
     let names: string[] = [];
     let source: SearchSource = 'list';
 
@@ -361,6 +370,10 @@ export class SearchBeersUseCase {
     }
 
     await beersDb.recordSearchHistory(userId ?? null, names.join(', '), source, names.length);
+    if (userId) {
+      const { decrementSearches } = await import('../../../services/db/users/users.db');
+      await decrementSearches(userId);
+    }
 
     const freshMap = new Map(fresh.map((b) => [b.query.toLowerCase(), b]));
     const cachedMap = new Map(cachedResults.map((b) => [b.query.toLowerCase(), b]));

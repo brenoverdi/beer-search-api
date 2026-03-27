@@ -8,29 +8,33 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")  // pooler URL (pgbouncer) — runtime
-  directUrl = env("DIRECT_URL")    // non-pooled — migrations only
+  url       = env("DATABASE_URL") // pooler URL (pgbouncer) — runtime
+  directUrl = env("DIRECT_URL") // non-pooled — migrations only
 }
 
 // ─── Users ─────────────────────────────────────────────────────────────────
 
 model User {
-  id            Int       @id @default(autoincrement())
-  username      String    @unique @db.VarChar(50)
-  email         String    @unique @db.VarChar(255)
-  password      String?   @db.VarChar(255)
-  googleId      String?   @unique @map("google_id") @db.VarChar(255)
-  emailVerified Boolean   @default(false) @map("email_verified")
-  
+  id            Int     @id @default(autoincrement())
+  username      String  @unique @db.VarChar(50)
+  email         String  @unique @db.VarChar(255)
+  password      String? @db.VarChar(255)
+  googleId      String? @unique @map("google_id") @db.VarChar(255)
+  emailVerified Boolean @default(false) @map("email_verified")
+
   // Profile fields
   dateOfBirth    DateTime? @map("date_of_birth") @db.Date
   gender         String?   @db.VarChar(20) // male, female, other, prefer-not-to-say
   country        String?   @db.VarChar(100)
   bio            String?   @db.Text
   favoriteStyles String[]  @default([]) @map("favorite_styles")
-  
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Premium & Limits
+  isPremium         Boolean @default(false) @map("is_premium")
+  searchesRemaining Int     @default(5) @map("searches_remaining")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   favorites          UserFavorite[]
   lists              UserList[]
@@ -38,6 +42,8 @@ model User {
   emailVerifications EmailVerification[]
   refreshTokens      RefreshToken[]
   itineraries        UserItinerary[]
+  activities         UserActivity[]
+  toasts             ActivityToast[]
 
   @@map("users")
 }
@@ -59,9 +65,10 @@ model Beer {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  favorites UserFavorite[]
-  listItems ListItem[]
-  beerTags  BeerTag[]
+  favorites      UserFavorite[]
+  listItems      ListItem[]
+  beerTags       BeerTag[]
+  userActivities UserActivity[]
 
   @@map("beers")
 }
@@ -227,4 +234,36 @@ model BeerOfTheDay {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("beer_of_the_day")
+}
+
+// ─── Social / Activity ─────────────────────────────────────────────────────
+
+model UserActivity {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  action    String   @db.VarChar(50) // "checkin", "favorite", "list_add"
+  beerId    String   @map("beer_id") @db.VarChar(200)
+  review    String?  @db.Text
+  rating    Float?   @map("rating")
+  location  String?  @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  beer   Beer            @relation(fields: [beerId], references: [id], onDelete: Cascade)
+  toasts ActivityToast[]
+
+  @@map("user_activities")
+}
+
+model ActivityToast {
+  id         Int      @id @default(autoincrement())
+  activityId Int      @map("activity_id")
+  userId     Int      @map("user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  activity UserActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([activityId, userId])
+  @@map("activity_toasts")
 }

@@ -52,4 +52,11 @@ router.get('/users/:userId/history', verifyMiddleware.verifyAuth, async (req: Re
   res.status(200).json(result);
 });
 
+// POST /api/users/premium
+router.post('/users/premium', verifyMiddleware.verifyAuth, async (req: Request, res: Response) => {
+  const userId = Number(req.userId);
+  const result = await container.resolve(usersUseCases.UpgradePremiumUseCase).execute(userId);
+  res.status(200).json(result);
+});
+
 export default router;

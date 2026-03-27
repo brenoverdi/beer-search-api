@@ -23,10 +23,11 @@ export const BEER_FESTIVALS: FestivalData[] = [
     city: 'Denver',
     country: 'United States',
     continent: 'North America',
-    startDate: '2026-10-01',
-    endDate: '2026-10-03',
+    startDate: '2026-09-01',
+    endDate: '2026-09-03',
     description: 'The largest beer festival in the United States, featuring over 800 breweries and 4,000+ beers. A premier event for craft beer enthusiasts.',
     website: 'https://www.greatamericanbeerfestival.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Tampa Beer Week',
@@ -37,6 +38,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-03-15',
     description: 'Week-long celebration of craft beer in Tampa Bay, featuring special releases, brewery tours, and educational seminars across the region.',
     website: 'https://www.tampabaybeerwek.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'San Diego Beer Week',
@@ -47,6 +49,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-11-15',
     description: 'Celebrating San Diego\'s renowned craft beer scene with over 600 events across the county, showcasing the region\'s brewing excellence.',
     website: 'https://www.sdbeer.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Craft Brewers Conference',
@@ -57,6 +60,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-05-14',
     description: 'North America\'s largest gathering of brewing professionals, featuring seminars, trade show, and BrewExpo America.',
     website: 'https://www.craftbrewersconference.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Oregon Brewers Festival',
@@ -67,6 +71,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-08-02',
     description: 'One of the longest-running craft beer festivals in America, held along the Willamette River with over 80 independent craft breweries.',
     website: 'https://www.oregonbrewfest.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Extreme Beer Fest',
@@ -77,6 +82,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-02-07',
     description: 'Featuring boundary-pushing, experimental, and rare beers from innovative breweries pushing the limits of brewing.',
     website: 'https://www.beeradvocate.com/extreme',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Philly Beer Week',
@@ -87,6 +93,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-06-07',
     description: 'Ten days of beer-centric events across Philadelphia, celebrating the city\'s vibrant craft beer culture and history.',
     website: 'https://www.phillybeerweek.org',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Firestone Walker Invitational Beer Fest',
@@ -97,6 +104,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-06-06',
     description: 'Exclusive craft beer festival featuring top-tier breweries from around the world, known for its curated selection and intimate atmosphere.',
     website: 'https://www.firestonebeer.com/invitational',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Mondial de la Bière Montréal',
@@ -107,6 +115,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-05-31',
     description: 'International beer festival showcasing beers from Quebec and around the world, with tastings, food pairings, and competitions.',
     website: 'https://www.festivalmondialbiere.qc.ca',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Festival Cerveza México',
@@ -117,6 +126,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-09-20',
     description: 'Mexico\'s premier craft beer festival celebrating the country\'s growing craft beer movement with domestic and international breweries.',
     website: 'https://www.festivalcervezamexico.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
 
   // ── Europe ──────────────────────────────────────────────────────────────────
@@ -129,6 +139,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-10-04',
     description: 'The world\'s largest beer festival, attracting over 6 million visitors annually to celebrate Bavarian culture, beer, and tradition.',
     website: 'https://www.oktoberfest.de',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Mikkeller Beer Celebration Copenhagen',
@@ -139,6 +150,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-05-17',
     description: 'Three-day craft beer extravaganza featuring innovative breweries from around the world, hosted by the renowned Mikkeller brewery.',
     website: 'https://mikkeller.com/beercelebration',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Brussels Beer Weekend',
@@ -149,6 +161,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-09-06',
     description: 'Celebrating Belgian beer heritage in the Grand Place, featuring over 70 breweries and traditional Belgian beer culture.',
     website: 'https://www.weekenddelabiere.be',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'London Craft Beer Festival',
@@ -159,6 +172,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-08-09',
     description: 'Premier craft beer festival in the UK capital, showcasing the best of British and international craft brewing.',
     website: 'https://www.londoncraftbeerfestival.co.uk',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Stockholm Beer & Whisky Festival',
@@ -169,6 +183,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-09-28',
     description: 'Scandinavia\'s largest beer festival, featuring craft beers from Nordic breweries alongside rare whisky selections.',
     website: 'https://www.stockholmbeer.se',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Prague Beer Festival',
@@ -179,6 +194,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-05-30',
     description: 'Massive beer festival celebrating Czech brewing heritage with over 150 Czech breweries in the heart of beer country.',
     website: 'https://www.prazskepivohrady.cz',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Amsterdam Beer Festival',
@@ -189,6 +205,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-10-11',
     description: 'Boutique beer festival in a historic Amsterdam building, featuring carefully selected craft breweries in an intimate setting.',
     website: 'https://www.amsbe.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Barcelona Beer Festival',
@@ -199,6 +216,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-03-29',
     description: 'Southern Europe\'s premier craft beer event, showcasing Spanish and international craft breweries with Mediterranean flair.',
     website: 'https://www.barcelonabeerfestival.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Dublin Craft Beer Cup',
@@ -209,6 +227,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-07-12',
     description: 'Ireland\'s craft beer showcase featuring Irish and international breweries in the heart of Dublin\'s Temple Bar district.',
     website: 'https://www.dublincraftbeercup.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
 
   // ── South America ───────────────────────────────────────────────────────────
@@ -221,6 +240,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-04-26',
     description: 'Latin America\'s largest beer festival, featuring over 600 beers from Brazilian and international breweries.',
     website: 'https://www.mondial.com.br',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Beervana Buenos Aires',
@@ -231,6 +251,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-10-18',
     description: 'Argentina\'s craft beer celebration showcasing the country\'s rapidly growing craft beer scene with local and international brewers.',
     website: 'https://www.beervana.com.ar',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Festival Brasileiro da Cerveja',
@@ -241,6 +262,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-03-21',
     description: 'Brazil\'s premier beer competition and festival held in the heart of German-influenced Blumenau, celebrating brewing excellence.',
     website: 'https://www.festivaldacerveja.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Lima Beer Week',
@@ -251,6 +273,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-08-28',
     description: 'Week-long celebration of Peru\'s emerging craft beer scene with tastings, brewery tours, and food pairings.',
     website: 'https://www.limabeerweek.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
 
   // ── Asia ────────────────────────────────────────────────────────────────────
@@ -263,6 +286,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-05-05',
     description: 'Japan\'s largest craft beer festival featuring domestic craft breweries and showcasing Japan\'s innovative brewing scene.',
     website: 'https://www.craftbeermarket.jp',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Beerfest Asia Singapore',
@@ -273,6 +297,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-06-21',
     description: 'Southeast Asia\'s premier beer festival with over 500 beers from around the world in Marina Bay.',
     website: 'https://www.beerfestasia.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Hong Kong Craft Beer Festival',
@@ -283,6 +308,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-09-13',
     description: 'Showcasing Hong Kong\'s burgeoning craft beer scene alongside regional and international craft breweries.',
     website: 'https://www.hkcraftbeerfest.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Bangkok Beer Festival',
@@ -293,6 +319,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-11-15',
     description: 'Thailand\'s craft beer celebration featuring local and international breweries in the heart of Bangkok.',
     website: 'https://www.bangkokbeerfest.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
 
   // ── Oceania ─────────────────────────────────────────────────────────────────
@@ -305,6 +332,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-08-15',
     description: 'New Zealand\'s premier craft beer festival showcasing the country\'s world-class brewing scene with innovative local breweries.',
     website: 'https://www.beervana.co.nz',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Great Australian Beer SpecTAPular Melbourne',
@@ -315,6 +343,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-05-24',
     description: 'Australia\'s largest craft beer festival featuring hundreds of breweries from across Australia and beyond.',
     website: 'https://www.gabsfestival.com',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
   {
     name: 'Perth Beer Festival',
@@ -325,6 +354,7 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-10-04',
     description: 'Western Australia\'s premier beer event showcasing local and interstate craft breweries in the heart of Perth.',
     website: 'https://www.perthbeerfest.com.au',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
 
   // ── Africa ──────────────────────────────────────────────────────────────────
@@ -337,5 +367,6 @@ export const BEER_FESTIVALS: FestivalData[] = [
     endDate: '2026-11-29',
     description: 'South Africa\'s leading craft beer festival celebrating the continent\'s growing craft beer movement.',
     website: 'https://www.festivalofbeer.co.za',
+    imageUrl: 'https://images.unsplash.com/photo-1514933651103-005eab06c04d?auto=format&fit=crop&q=80&w=1000',
   },
 ];

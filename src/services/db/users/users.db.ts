@@ -5,7 +5,7 @@ import prisma from '../../prisma/index';
 export const getUserById = async (id: number) =>
   prisma.user.findUnique({
     where: { id },
-    select: { id: true, username: true, email: true, emailVerified: true, createdAt: true },
+    select: { id: true, username: true, email: true, emailVerified: true, isPremium: true, searchesRemaining: true, favoriteStyles: true, createdAt: true },
   });
 
 // ── Favorites ────────────────────────────────────────────────────────────────
@@ -37,3 +37,22 @@ export const getSearchHistory = async (userId: number, limit = 20) =>
 
 export const getBeerById = async (id: string) =>
   prisma.beer.findUnique({ where: { id } });
+
+// ── Limits & Premium ──────────────────────────────────────────────────────────
+
+export const upgradeToPremium = async (userId: number) =>
+  prisma.user.update({
+    where: { id: userId },
+    data: { isPremium: true, searchesRemaining: 999999 }
+  });
+
+export const decrementSearches = async (userId: number) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (user && !user.isPremium && user.searchesRemaining > 0) {
+    return prisma.user.update({
+      where: { id: userId },
+      data: { searchesRemaining: { decrement: 1 } }
+    });
+  }
+  return user;
+};

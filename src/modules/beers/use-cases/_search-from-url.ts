@@ -429,6 +429,15 @@ export class SearchBeersFromUrlUseCase {
       throw new AppError(400, 'Invalid URL format');
     }
 
+    // Check Freemium limits
+    const { getUserById, decrementSearches } = await import('../../../services/db/users/users.db');
+    if (userId) {
+      const user = await getUserById(userId);
+      if (user && !user.isPremium && user.searchesRemaining <= 0) {
+        throw new AppError(403, 'You have reached your free search limit. Please upgrade to Premium.');
+      }
+    }
+
     // Step 1: Scrape the page content
     console.log(`[URLSearch] Scraping URL: ${url}`);
     const scrapeResult = await scrapePageContent(url);
@@ -488,6 +497,10 @@ export class SearchBeersFromUrlUseCase {
     }
 
     await beersDb.recordSearchHistory(userId ?? null, `URL: ${url}`, 'url' as SearchSource, names.length);
+    if (userId) {
+      const { decrementSearches } = await import('../../../services/db/users/users.db');
+      await decrementSearches(userId);
+    }
 
     const freshMap = new Map(fresh.map((b) => [b.query.toLowerCase(), b]));
     const cachedMap = new Map(cachedResults.map((b) => [b.query.toLowerCase(), b]));
